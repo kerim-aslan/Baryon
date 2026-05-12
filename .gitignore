@@ -1,0 +1,10 @@
+\.cache
+\build
+\docs
+\baryon\Doxyfile
+\egitim
+*.py
+*.exe
+*.dll
+*.lib
+*.zip
