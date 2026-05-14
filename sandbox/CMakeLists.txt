@@ -9,13 +9,12 @@ add_executable(${PROJECT_NAME} ${SRC_FILES} ${INC_FILES})
 # *** BAŞLIK DOSYASI YOLLARINI AÇIKÇA BELİRTİYORUZ ***
 target_include_directories(${PROJECT_NAME} PRIVATE 
     inc 
-    ../pkgs_mochi/lib.qaos.mochi/inc
-    ../pkgs_mochi/lib.qaos.basis/inc
     ../baryon/include
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    qaos_mochi_static
-    Baryon_static
-    qaos_basis
+    qaos_mochi_shared
+    Baryon_shared
 )
+
+target_link_options(${PROJECT_NAME} PUBLIC -rdynamic)

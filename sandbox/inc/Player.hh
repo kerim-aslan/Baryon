@@ -5,9 +5,10 @@
 #include <cmath>
 
 #include "mochi/core.hh"
-#include "mochi/module/window.hh"
-#include "mochi/world/camera.hh"
-#include "mochi/world/visual.hh"
+#include "mochi/module/display.hh" // window.hh -> display.hh olarak güncellendi
+#include "mochi/ecs/camera.hh"     // Yeni ECS Kamera sistemi
+#include "mochi/ecs/transform.hh"  // Yeni ECS Transform sistemi
+#include "mochi/ecs/mesh.hh"       // Yeni ECS Mesh sistemi
 #include "Baryon/Simulator.hpp"
 #include "Baryon/math/Pose.hpp"
 #include "Baryon/Core/CoreComponents.hpp"
@@ -16,8 +17,9 @@ extern float g_camera_distance;
 
 class Player {
 public:
-    Player(mochi::core& engine, Baryon::Simulator& physicsWorld, mochi::camera* cam,
-           const Baryon::Vector3& startPos, mochi::asset::mesh* playerMesh, mochi::rhi::pipeline* pipeline)
+    // Pipeline parametresi kaldırıldı, mesh sptr (paylaşımlı işaretçi) yapıldı ve camera ECS component'i oldu
+    Player(mochi::core& engine, Baryon::Simulator& physicsWorld, mochi::ecs::Camera* cam,
+           const Baryon::Vector3& startPos, sptr<mochi::asset::mesh> playerMesh)
         : m_engine(engine), m_world(physicsWorld), m_camera(cam), m_body(Baryon::ecs::Entity{0}, physicsWorld.getRegistry()) 
     {
         Baryon::Pose startTransform;
@@ -34,32 +36,28 @@ public:
         massProps.inverseMass = 0.0f; // Kinematik: Sonsuz kütle
         massProps.inverseInertiaTensor = Baryon::Matrix3x3(0,0,0, 0,0,0, 0,0,0);
 
-        m_visual = mochi::visual::make(
-            m_engine, 
-            m_engine.scene(), 
-            mochi::mat4<f32>::model(
-                mochi::vec3<f32>(startPos.x, startPos.y, startPos.z), 
-                mochi::quaternion<f32>(1.0f, 0.0f, 0.0f, 0.0f), 
-                mochi::vec3<f32>(0.5f) // Görsel ölçek, BoxShape half-extents (0.5f) ile senkronize edildi
-            ), 
-            playerMesh, 
-            pipeline
+        // --- Yeni ECS Sisteminde Görsel Obje Oluşturma ---
+        m_visualEntity = m_engine.registry().create();
+        auto& transform = m_engine.registry().emplace<mochi::ecs::Transform>(m_visualEntity);
+        transform.model = mochi::mat4<f32>::model(
+            mochi::vec3<f32>(startPos.x, startPos.y, startPos.z), 
+            mochi::quaternion<f32>(1.0f, 0.0f, 0.0f, 0.0f), 
+            mochi::vec3<f32>(0.5f) // Görsel ölçek
         );
+        m_engine.registry().emplace<mochi::ecs::Mesh>(m_visualEntity, playerMesh);
     }
 
     Baryon::ecs::Entity getEntity() const { return m_body.getEntity(); }
 
-    // --- EKSİK OLAN FONKSİYON 1: Yön Vektörü ---
     Baryon::Vector3 getForwardVector() const {
         const float PI = 3.1415926535f;
         float radYaw = m_yaw * (PI / 180.0f);
-        // Kameranın baktığı yönün tersini (veya düzünü) oyununa göre ayarla
         return Baryon::Vector3(-cos(radYaw), 0, -sin(radYaw));
     }
 
-    // --- EKSİK OLAN FONKSİYON 2: Ateş Etme Kontrolü ---
     bool isShooting() {
-        auto win = m_engine.sub<mochi::module::window>().glfw();
+        // window -> display
+        auto win = m_engine.sub<mochi::module::display>().glfw();
         bool left_click = (glfwGetMouseButton(win, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
         
         if (left_click && !m_shootPressedLast) {
@@ -73,7 +71,8 @@ public:
     }
 
     void updateInputAndCamera(f32 dt) {
-        auto win = m_engine.sub<mochi::module::window>().glfw();
+        // window -> display
+        auto win = m_engine.sub<mochi::module::display>().glfw();
         const float PI = 3.1415926535f;
 
         // --- Mouse Kontrolü ---
@@ -133,7 +132,6 @@ public:
         }
 
         // --- KINEMATIC CHARACTER CONTROLLER (KCC) ---
-        // Standart motorlarda fizik çözücüsü kinematikleri yok sayar. Çarpışmaları manuel çözeriz.
         auto contacts = m_world.getContactsForEntity(m_body.getEntity());
         for (const auto& manifold : contacts) {
             if (manifold.isTriggerPair || manifold.penetration <= 0.0f) continue;
@@ -141,12 +139,9 @@ public:
             bool isA = (manifold.entityA.id == m_body.getEntity().id);
             Baryon::Vector3 normal = manifold.normal;
             
-            // Yönü garantile (Normal her zaman oyuncuyu DIŞARI itmeli)
             auto otherEntity = isA ? manifold.entityB : manifold.entityA;
             if (m_world.getRegistry().hasComponent<Baryon::Core::BodyState>(otherEntity)) {
                 auto type = m_world.getRegistry().getComponent<Baryon::Core::BodyState>(otherEntity).type;
-                // KCC sadece Statik objeler içindir. Eğer diğer obje Dinamik ise, KCC'yi atla.
-                // Çünkü Kinematik karakter sonsuz kütleli olduğu için motor zaten dinamik objeyi itecektir.
                 if (type == Baryon::Core::BodyType::Dynamic) continue;
                 
                 auto& otherPose = m_world.getRegistry().getComponent<Baryon::Pose>(otherEntity);
@@ -172,20 +167,27 @@ public:
         offset.Y = g_camera_distance * sin(m_pitch * PI / 180.0f);
         offset.Z = g_camera_distance * sin(radYaw) * cos(m_pitch * PI / 180.0f);
         
-        m_camera->setModel(mochi::mat4<f32>::lookAt(
-            mochi::vec3<f32>(pose.position.x + offset.X, pose.position.y + offset.Y + 2.0f, pose.position.z + offset.Z), 
-            mochi::vec3<f32>(pose.position.x, pose.position.y + 1.2f, pose.position.z), 
-            mochi::vec3<f32>(0, 1, 0)
-        ).inverse());
+        if (m_camera) {
+            // Eskiden setModel(lookAt.inverse()) yapılıyordu. Yeni mimaride view matrisine 
+            // direkt lookAt matrisini atamak yeterlidir.
+            m_camera->view = mochi::mat4<f32>::lookAt(
+                mochi::vec3<f32>(pose.position.x + offset.X, pose.position.y + offset.Y + 2.0f, pose.position.z + offset.Z), 
+                mochi::vec3<f32>(pose.position.x, pose.position.y + 1.2f, pose.position.z), 
+                mochi::vec3<f32>(0, 1, 0)
+            );
+        }
 
-        if (m_visual) {
+        // Yeni sistemde objenin ECS verisini registry üzerinden çekiyoruz
+        if (m_engine.registry().valid(m_visualEntity)) {
+            auto& transform = m_engine.registry().get<mochi::ecs::Transform>(m_visualEntity);
             float angle = -radYaw - (PI / 2.0f);
             mochi::quaternion<f32> qRotation(cos(angle / 2.0f), 0, sin(angle / 2.0f), 0);
-            m_visual->setModel(mochi::mat4<f32>::model(
+            
+            transform.model = mochi::mat4<f32>::model(
                 mochi::vec3<f32>(pose.position.x, pose.position.y, pose.position.z), 
                 qRotation, 
                 mochi::vec3<f32>(1.0f)
-            ));
+            );
         }
         
         auto& state = m_world.getRegistry().getComponent<Baryon::Core::BodyState>(m_body.getEntity());
@@ -197,11 +199,12 @@ private:
     mochi::core& m_engine;
     Baryon::Simulator& m_world;
     Baryon::Body m_body;
-    mochi::visual* m_visual;
-    mochi::camera* m_camera;
+    
+    entt::entity m_visualEntity{entt::null}; // Eski `visual*` yerine ECS Entity ID'si
+    mochi::ecs::Camera* m_camera;            // Yeni ECS Kamera Bileşeni referansı
 
     float m_yaw = +90.0f, m_pitch = +25.0f;
     double m_lastX = 640.0, m_lastY = 360.0;
     bool m_firstMouse = true, m_cursorLocked = true, m_escPressedLast = false;
-    bool m_shootPressedLast = false; // Bunu eklemeyi unutmuştuk!
+    bool m_shootPressedLast = false;
 };
