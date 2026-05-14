@@ -16,7 +16,7 @@
 #include "mochi/ecs/transform.hh"
 #include "mochi/ecs/point_light.hh"
 #include "mochi/ecs/mesh.hh"
-#include "mochi/vfs/vfs_res.hh"
+#include "mochi/vfs/vfs_embed.hh"
 #include "mochi/vfs/vfs_file.hh"
 
 #include "Baryon/Simulator.hpp"
@@ -24,15 +24,7 @@
 
 using namespace mochi;
 using namespace Baryon;
-
-// =========================================================================
-// MESH / MODEL DOSYA YOLLARI
-// =========================================================================
-const std::string PATH_MESH_CUBE    = "Asset/kup.obj";
-const std::string PATH_MESH_DİAMOND = "Asset/elmas.glb";
-const std::string PATH_MESH_PLAYER  = "Asset/kup.obj";
-const std::string PATH_MESH_SPHERE  = "Asset/top.glb"; 
-const std::string PATH_MESH_CAPSULE = "Asset/top.glb"; 
+  
 
 float g_camera_distance = 15.0f;
 void scroll_callback(GLFWwindow* window, double x, double y) {
@@ -40,8 +32,8 @@ void scroll_callback(GLFWwindow* window, double x, double y) {
 }
 
 int Main() {
-    auto vfs_res = vfs::__res::get();
     auto vfs_file = vfs::__file::get();
+    auto vfs_embed = vfs::__embed::get();
 
     Simulator world;
     world.setAccelerationField(Vector3(0.0f, -18.0f, 0.0f));
@@ -133,11 +125,11 @@ int Main() {
     lig_comp.intensity = 800.0f;
 
     // 3. MODELLERİN YÜKLENMESİ 
-    auto m_cube    = asset::mesh::make(eng, PATH_MESH_CUBE);
-    auto m_diamond = asset::mesh::make(eng, PATH_MESH_DİAMOND);
-    auto m_player  = asset::mesh::make(eng, PATH_MESH_PLAYER);
-    auto m_sphere  = asset::mesh::make(eng, PATH_MESH_SPHERE);
-    auto m_capsule = asset::mesh::make(eng, PATH_MESH_CAPSULE);
+    auto m_cube    = asset::mesh::make(eng, "file://Asset/kup.obj"_vfs_map->span(), ".obj");
+    auto m_diamond = asset::mesh::make(eng, "file://Asset/elmas.glb"_vfs_map->span(), ".glb");
+    auto m_player  = asset::mesh::make(eng, "file://Asset/kup.obj"_vfs_map->span(), ".obj");
+    auto m_sphere  = asset::mesh::make(eng, "file://Asset/top.glb"_vfs_map->span(), ".glb");
+    auto m_capsule = asset::mesh::make(eng, "file://Asset/top.glb"_vfs_map->span(), ".glb");
 
     auto spawnBox = [&](Vector3 pos, Vector3 ext, Core::BodyType type, float qW=1.0f, float qX=0.0f, float qY=0.0f, float qZ=0.0f, sptr<asset::mesh> customMesh = nullptr) {
         Pose t;
