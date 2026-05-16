@@ -25,7 +25,7 @@ struct PhysicsConstants {
      * @details Kalan iç içe geçme mesafesinin her adımda yüzde kaçının düzeltileceğini belirler.
      *          Değerin çok yüksek olması yaylanmaya, düşük olması ise yavaş ayrılmaya neden olur.
      */
-    static constexpr float PositionCorrectionFactor = 0.2f;
+    static constexpr float PositionCorrectionFactor = 0.5f;
 
     /**
      * @brief Tek bir adımda yapılabilecek maksimum konum düzeltme miktarı.

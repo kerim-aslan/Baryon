@@ -96,6 +96,22 @@ public:
     }
 
     /**
+     * @brief Cisme anlık bir itme (impulse) kuvveti uygular.
+     * @param impulse Uygulanacak itme vektörü (N*s).
+     */
+    std::expected<Body, PhysicsError> applyLinearImpulse(const Vector3& impulse) {
+        if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity) || !mRegistry->hasComponent<Core::MassProps>(mEntity)) return std::unexpected(PhysicsError::EntityDead);
+        auto& motion = mRegistry->getComponent<Core::Motion>(mEntity);
+        auto& mass = mRegistry->getComponent<Core::MassProps>(mEntity);
+        auto& state = mRegistry->getComponent<Core::BodyState>(mEntity);
+        
+        motion.linearVelocity += impulse * mass.inverseMass;
+        state.isSleeping = false;
+        state.sleepTimer = 0.0f;
+        return *this;
+    }
+
+    /**
      * @brief Cismin doğrusal hızını ayarlar ve uyku modundan çıkarır.
      * @param velocity Yeni doğrusal hız vektörü (m/s).
      */

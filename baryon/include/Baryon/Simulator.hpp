@@ -185,6 +185,13 @@ public:
         mSpatialPartitioning.rebuildTree();
     }
 
+    /**
+     * @brief Tüm varlıkların AABB sınırlarını konsola yazdırır.
+     * @details Çarpışma algılayıcı ve fizik motorunun görsellerle boyut uyumunu 
+     *          doğrulamak için (Hata ayıklama amaçlı) kullanılır.
+     */
+    void printAABBs();
+
     /// @}
 };
 

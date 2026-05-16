@@ -9,6 +9,7 @@
 #include "Baryon/collision/NarrowPhase.hpp"
 #include "Baryon/Core/CoreComponents.hpp"
 #include <ranges>
+#include <iostream>
 
 namespace Baryon {
 
@@ -140,7 +141,7 @@ void Simulator::step(float deltaTime) {
 
         // 5. Her nesne grubu için fiziksel tepkileri hesapla (12 iterasyon kararlılık için idealdir)
         for (const auto& island : islands) {
-            mSolver.execute(island, mCollisionSystem.getManifolds(), dt, 12);
+            mSolver.execute(island, mCollisionSystem.getManifolds(), dt, 12, 8);
         }
 
         // 6. Güncellenmiş hızları kullanarak konumları değiştir
@@ -210,6 +211,24 @@ std::vector<collision::ContactManifold> Simulator::getContactsForEntity(ecs::Ent
         }
     }
     return result;
+}
+
+void Simulator::printAABBs() {
+    std::cout << "\n--- Baryon Physics AABB Dump ---\n";
+    const auto& colliderPool = mRegistry.getComponentPool<ecs::ColliderData>();
+    const auto& entities = colliderPool.getAllEntities();
+    for (auto entity : entities) {
+        if (!mRegistry.hasComponent<Pose>(entity)) continue;
+        const auto& collider = mRegistry.getComponent<ecs::ColliderData>(entity);
+        const auto& pose = mRegistry.getComponent<Pose>(entity);
+        
+        collision::AABB localAABB = collider.shape.computeLocalAABB();
+        Vector3 extents = (localAABB.maxBounds - localAABB.minBounds) * 0.5f;
+        
+        std::cout << "Entity " << entity.id << " Pos: [" << pose.position.x << ", " << pose.position.y << ", " << pose.position.z << "] "
+                  << "Local AABB Extents: [" << extents.x << ", " << extents.y << ", " << extents.z << "]\n";
+    }
+    std::cout << "--------------------------------\n";
 }
 
 } // namespace Baryon

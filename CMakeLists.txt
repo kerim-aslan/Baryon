@@ -4,7 +4,8 @@ project(QAOS_GameEngine_Workspace)
 # C++ Standardını 23 yapıyoruz (Baryon modern C++23 özellikleri kullanıyor)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+# CMake'in MSYS2 Clang ile uyumsuz olan C++20 Module taramasını devre dışı bırakıyoruz.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 # Sanitizer
 if(NOT WIN32)
   add_compile_options($<$<CONFIG:Debug>:-fsanitize=address,leak,undefined>)

@@ -295,6 +295,10 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
                     hasCollision = true;
                     hitEntity = obstacle;
                     collisionNormal = (pA - pB).getNormalized();
+                    // Normalin hıza ters yönde olduğundan emin ol
+                    if (motion.linearVelocity.dot(collisionNormal) > 0.0f) {
+                        collisionNormal = collisionNormal * -1.0f;
+                    }
                     if (collisionNormal.lengthSquare() < 0.001f) collisionNormal = motion.linearVelocity.getNormalized() * -1.0f;
                 }
                 break;
@@ -312,10 +316,14 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
     });
 
     if (hasCollision && timeOfImpact < deltaTime) {
-        // Nesneyi çarpışma anında durdur ve hızı yüzeye teğet olacak şekilde ayarla
-        transform.position += motion.linearVelocity * std::max(0.0f, timeOfImpact - 0.001f);
-        float velAlongNormal = motion.linearVelocity.dot(collisionNormal);
-        if (velAlongNormal < 0.0f) motion.linearVelocity -= collisionNormal * velAlongNormal;
+        // Fonksiyonun başında zaten hesaplanmış olan 'speed' değişkenini kullanıyoruz.
+        // Hiçbir ekstra karekök (sqrt) veya vektör uzunluğu hesaplaması yok!
+        float timeMargin = (speed > 1e-4f) ? (0.01f / speed) : 0.0f;
+        
+        // EKSİK OLAN SATIR BURASI:
+        float safeTime = std::max(0.0f, timeOfImpact - timeMargin);
+        
+        motion.linearVelocity = motion.linearVelocity * (safeTime / deltaTime);
     }
 }
 

@@ -3,6 +3,7 @@
 \docs
 \baryon\Doxyfile
 \egitim
+\.vscode
 *.py
 *.exe
 *.dll
