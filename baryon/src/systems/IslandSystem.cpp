@@ -8,6 +8,7 @@
 
 #include "Baryon/systems/IslandSystem.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
+#include "Baryon/Core/DebugManager.hpp"
 #include <queue>
 
 namespace Baryon::systems {
@@ -115,6 +116,7 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
                 
                 state.sleepTimer += deltaTime;
                 if (state.sleepTimer >= 0.5f) { // Belirlenen süre sonunda uykuya dal
+                    if (!state.isSleeping) BARYON_LOG_SLEEP("Entity ", ent.id, " fell asleep.");
                     state.isSleeping = true;
                     fellAsleep = true;
                     
@@ -135,6 +137,7 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
             for (ecs::Entity ent : island) {
                 auto& state = mRegistry.getComponent<Core::BodyState>(ent);
                 if (state.type != Core::BodyType::Dynamic) continue;
+                if (state.isSleeping) BARYON_LOG_SLEEP("Entity ", ent.id, " woke up.");
                 state.sleepTimer = 0.0f;
                 state.isSleeping = false; 
             }

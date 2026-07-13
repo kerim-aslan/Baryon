@@ -7,6 +7,7 @@
  */
 
 #include "Baryon/collision/NarrowPhase.hpp"
+#include "Baryon/Core/DebugManager.hpp"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -600,6 +601,9 @@ CollisionInfo NarrowPhase::EPA(const Simplex& simplex,
     info.hasCollision = true;
     info.normal = closestFace.normal;
     info.penetration = closestFace.distance;
+
+    BARYON_LOG_NARROW("EPA Collision Found | Pen: ", info.penetration,
+                      " | N: (", info.normal.x, ", ", info.normal.y, ", ", info.normal.z, ")");
 
     // Derin penetrasyonlarda normalin yönünü her zaman merkez farkına göre doğrula
     Vector3 centerSep = transformA.position - transformB.position;

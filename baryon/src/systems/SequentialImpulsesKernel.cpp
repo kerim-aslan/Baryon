@@ -12,6 +12,7 @@
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
+#include "Baryon/Core/DebugManager.hpp"
 #include <algorithm> 
 #include <cmath>
 #include <unordered_set>
@@ -241,6 +242,8 @@ void SequentialImpulsesKernel::resolveCollision(collision::ContactManifold& mani
         float oldNormalImpulse = contact.normalImpulse;
         contact.normalImpulse = std::max(oldNormalImpulse + j, 0.0f);
         j = contact.normalImpulse - oldNormalImpulse;
+
+        BARYON_LOG_IMPULSE("Applied Normal Impulse: ", j, " | Accum: ", contact.normalImpulse);
         
         Vector3 impulse = n * j;
         
@@ -356,6 +359,8 @@ void SequentialImpulsesKernel::solvePositionConstraints(collision::ContactManifo
         // Baumgarte Stabilizasyonu: Pozisyon hatasını her karede belirli bir oranda (%) düzelt
         float lambda = (C * physics::PhysicsConstants::PositionCorrectionFactor) / invMassSum;
         Vector3 impulse = n * lambda;
+
+        BARYON_LOG_POS("Position Correction: C=", C, " | Lambda=", lambda);
 
         // Nesneleri birbirlerinden uzağa ötele
         poseA.position += impulse * invMassA;
