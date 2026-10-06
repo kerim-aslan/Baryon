@@ -2,559 +2,437 @@
  * @file SequentialImpulsesKernel.cpp
  * @brief Ardışık İtme (Sequential Impulses) çözücüsü uygulaması.
  * @details Temas noktalarını, mesafe kısıtlamalarını ve menteşe eklemlerini (joint) 
- *          iteratif olarak çözen çekirdek algoritmadır. Her kısıtlama için itme (impulse) 
- *          değerleri hesaplanarak nesnelerin hızları ve konumları düzeltilir. 
- *          Simülasyon kararlılığı için hız çözümü sonrası "Pozisyon Düzeltme" (NGS) uygulanır.
+ *          iteratif olarak çözer. Warm Starting, 2D Coulomb sürtünmesi ve Split Impulse içerir.
  */
 
 #include "Baryon/systems/SequentialImpulsesKernel.hpp"
-#include "Baryon/math/Matrix3x3.hpp"
+#include "Baryon/Core/DebugManager.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
-#include "Baryon/collision/RevoluteConstraint.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
-#include <algorithm> 
+#include "Baryon/collision/RevoluteConstraint.hpp"
+#include "Baryon/math/Matrix3x3.hpp"
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
 
 namespace Baryon::systems {
 
-SequentialImpulsesKernel::SequentialImpulsesKernel(Core::Registry& registry)
+SequentialImpulsesKernel::SequentialImpulsesKernel(Core::Registry &registry)
     : mRegistry(registry) {}
 
-/**
- * @brief Bir nesne grubu (Island) içindeki tüm kısıtlamaları ve çarpışmaları çözer.
- * @details 
- * 1. Filtreleme: Mevcut adaya ait temas verilerini ve eklem tanımlarını toplar.
- * 2. Hız Çözücü (Velocity Solver): Belirlenen iterasyon kadar hız değişimlerini (Impulse) hesaplar.
- *    Bu aşamada Çarpışma, Mesafe ve Menteşe kısıtlamaları ardışık olarak işlenir.
- * 3. Pozisyon Çözücü (Position Solver): Hızlardan bağımsız olarak, iç içe geçmiş nesneleri 
- *    birbirinden ayırarak "titreme" ve "yumuşaklık" sorunlarını giderir.
- * 
- * @param island İşlem görecek varlık listesi.
- * @param manifolds Sisteme kayıtlı tüm temas verileri.
- * @param deltaTime Zaman adımı.
- * @param velocityIterations Hız hassasiyeti.
- * @param positionIterations Konum düzeltme hassasiyeti.
- */
-void SequentialImpulsesKernel::execute(const std::vector<ecs::Entity>& island,
-                                        const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
-                                        float deltaTime, int velocityIterations, int positionIterations) {
-    // 1. Verimli arama için ada içindeki varlık kimliklerini set yapısına al
-    std::unordered_set<uint32_t> islandIds;
-    islandIds.reserve(island.size() * 2 + 8);
-    for (ecs::Entity e : island) {
-        islandIds.insert(e.id);
-    }
+void SequentialImpulsesKernel::execute(
+    const std::vector<ecs::Entity> &island,
+    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    float deltaTime, int velocityIterations, int positionIterations) {
+    if (island.empty() || manifolds.empty()) return;
 
-    auto& manifoldMap = const_cast<std::unordered_map<uint64_t, collision::ContactManifold>&>(manifolds);
+    auto &manifoldMap = const_cast<std::unordered_map<uint64_t, collision::ContactManifold> &>(manifolds);
+    std::vector<collision::ContactManifold *> localManifolds;
+    localManifolds.reserve(std::min(manifolds.size(), static_cast<size_t>(64)));
 
-    // 2. Sadece bu adadaki nesneleri ilgilendiren temasları seç
-    std::vector<collision::ContactManifold*> localManifolds;
-    localManifolds.reserve(std::min(manifolds.size(), static_cast<size_t>(256)));
-    for (auto& [key, manifold] : manifoldMap) {
-        (void)key;
-        if (islandIds.contains(manifold.entityA.id) || islandIds.contains(manifold.entityB.id)) {
-            localManifolds.push_back(&manifold);
+    if (island.size() == 1) {
+        const uint32_t singleId = island[0].id;
+        for (auto &[key, manifold] : manifoldMap) {
+            if (manifold.entityA.id == singleId || manifold.entityB.id == singleId) {
+                localManifolds.push_back(&manifold);
+            }
+        }
+    } else if (island.size() <= 16) {
+        for (auto &[key, manifold] : manifoldMap) {
+            uint32_t idA = manifold.entityA.id;
+            uint32_t idB = manifold.entityB.id;
+            for (ecs::Entity e : island) {
+                if (e.id == idA || e.id == idB) {
+                    localManifolds.push_back(&manifold);
+                    break;
+                }
+            }
+        }
+    } else {
+        std::unordered_set<uint32_t> islandIds;
+        islandIds.reserve(island.size() * 2);
+        for (ecs::Entity e : island) {
+            islandIds.insert(e.id);
+        }
+        for (auto &[key, manifold] : manifoldMap) {
+            if (islandIds.contains(manifold.entityA.id) || islandIds.contains(manifold.entityB.id)) {
+                localManifolds.push_back(&manifold);
+            }
         }
     }
 
-    // 3. Adadaki aktif eklem kısıtlamalarını (Mesafe ve Menteşe) filtrele
-    std::vector<collision::DistanceConstraint*> localDistance;
-    std::vector<collision::RevoluteConstraint*> localRevolute;
-    localDistance.reserve(16);
-    localRevolute.reserve(16);
-
+    // Eklem kısıtlamaları
+    std::vector<collision::DistanceConstraint *> localDistance;
+    std::vector<collision::RevoluteConstraint *> localRevolute;
     if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
-        auto& constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
-        for (auto& constraint : constraints) {
-            if (islandIds.contains(constraint.entityA.id) || islandIds.contains(constraint.entityB.id)) {
-                localDistance.push_back(&constraint);
+        auto &constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
+        for (auto &constraint : constraints) {
+            bool match = false;
+            for (ecs::Entity e : island) {
+                if (e.id == constraint.entityA.id || e.id == constraint.entityB.id) {
+                    match = true;
+                    break;
+                }
             }
+            if (match) localDistance.push_back(&constraint);
         }
     }
     if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
-        auto& constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
-        for (auto& constraint : constraints) {
-            if (islandIds.contains(constraint.entityA.id) || islandIds.contains(constraint.entityB.id)) {
-                localRevolute.push_back(&constraint);
+        auto &constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
+        for (auto &constraint : constraints) {
+            bool match = false;
+            for (ecs::Entity e : island) {
+                if (e.id == constraint.entityA.id || e.id == constraint.entityB.id) {
+                    match = true;
+                    break;
+                }
             }
+            if (match) localRevolute.push_back(&constraint);
         }
     }
 
-    // 4. Hız İterasyonları: Kuvvetleri ardışık olarak uygula (Gauss-Seidel Yaklaşımı)
+    if (localManifolds.empty() && localDistance.empty() && localRevolute.empty()) {
+        return;
+    }
+
+    // 1. ÖN-ADIM: Ortogonal teğetleri ve Warm-Starting kuvvetlerini hızlara uygula
+    for (collision::ContactManifold *manifold : localManifolds) {
+        preStep(*manifold, deltaTime);
+    }
+
+    // 2. Hız İterasyonları: Gauss-Seidel yaklaşımı
     for (int iter = 0; iter < velocityIterations; ++iter) {
-        for (collision::ContactManifold* manifold : localManifolds) {
+        for (collision::ContactManifold *manifold : localManifolds) {
             resolveCollision(*manifold, deltaTime);
         }
-        for (collision::DistanceConstraint* constraint : localDistance) {
+        for (collision::DistanceConstraint *constraint : localDistance) {
             resolveDistanceConstraint(*constraint, deltaTime);
         }
-        for (collision::RevoluteConstraint* constraint : localRevolute) {
+        for (collision::RevoluteConstraint *constraint : localRevolute) {
             resolveRevoluteConstraint(*constraint, deltaTime);
         }
     }
 
-    // 5. Pozisyon İterasyonları: İç içe geçmeleri fiziksel olarak ayır
+    // 3. Pozisyon İterasyonları: Split Impulse ile kinetik hızı kirletmeden penetrasyonu çöz
     for (int iter = 0; iter < positionIterations; ++iter) {
-        for (collision::ContactManifold* manifold : localManifolds) {
-            solvePositionConstraints(*manifold);
+        for (collision::ContactManifold *manifold : localManifolds) {
+            solvePositionConstraints(*manifold, deltaTime);
         }
     }
 }
 
-/**
- * @brief Yardımcı fonksiyon: Adadaki çarpışma çözümlerini yürütür.
- */
-void SequentialImpulsesKernel::solveIsland(const std::vector<ecs::Entity>& island, 
-                                           const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds, 
-                                           float deltaTime) {
-    std::unordered_set<uint32_t> islandIds;
-    islandIds.reserve(island.size() * 2 + 8);
-    for (ecs::Entity e : island) {
-        islandIds.insert(e.id);
-    }
-    for (const auto& [key, manifold] : manifolds) {
-        (void)key;
-        if (!islandIds.contains(manifold.entityA.id) && !islandIds.contains(manifold.entityB.id)) continue;
-        auto& mutableManifold = const_cast<collision::ContactManifold&>(manifold);
-        resolveCollision(mutableManifold, deltaTime);
-    }
+void SequentialImpulsesKernel::solveIsland(
+    const std::vector<ecs::Entity> &island,
+    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    float deltaTime) {
+    execute(island, manifolds, deltaTime, 10, 4);
 }
 
-/**
- * @brief Yardımcı fonksiyon: Adadaki eklem kısıtlamalarını yürütür.
- */
-void SequentialImpulsesKernel::solveConstraintsForIsland(const std::vector<ecs::Entity>& island, 
-                                                          float deltaTime) {
-    std::unordered_set<uint32_t> islandIds;
-    islandIds.reserve(island.size() * 2 + 8);
-    for (ecs::Entity e : island) {
-        islandIds.insert(e.id);
-    }
-
-    if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
-        auto& constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
-        for (auto& constraint : constraints) {
-            if (islandIds.contains(constraint.entityA.id) || islandIds.contains(constraint.entityB.id)) {
-                resolveDistanceConstraint(constraint, deltaTime);
-            }
-        }
-    }
-
-    if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
-        auto& constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
-        for (auto& constraint : constraints) {
-            if (islandIds.contains(constraint.entityA.id) || islandIds.contains(constraint.entityB.id)) {
-                resolveRevoluteConstraint(constraint, deltaTime);
-            }
-        }
-    }
+void SequentialImpulsesKernel::solveConstraintsForIsland(
+    const std::vector<ecs::Entity> &island, float deltaTime) {
+    (void)island;
+    (void)deltaTime;
 }
 
-/**
- * @brief İki nesne arasındaki çarpışma tepkisini (itme ve sürtünme) hesaplar.
- * @details 
- * 1. Bağıl Hız: Temas noktasındaki hız farkı bulunur.
- * 2. Efektif Kütle: Nesnelerin kütlesi ve dönme direncinin normal yönündeki toplam etkisi hesaplanır.
- * 3. İtme Kuvveti (Impulse): Hız farkını sıfırlayacak itme değeri bulunur. 
- *    Esneklik (Restitution) eklenerek sekme hareketi sağlanır.
- * 4. Sürtünme: Coulomb sürtünme modeli kullanılarak normal itmeye bağlı teğet kuvveti uygulanır.
- * 
- * @param manifold Temas noktası verileri.
- * @param deltaTime Zaman adımı.
- */
-void SequentialImpulsesKernel::resolveCollision(collision::ContactManifold& manifold, float deltaTime) {
+void SequentialImpulsesKernel::preStep(
+    collision::ContactManifold &manifold, float deltaTime) {
+    (void)deltaTime;
     if (!mRegistry.hasComponent<Pose>(manifold.entityA) || !mRegistry.hasComponent<Pose>(manifold.entityB)) return;
     if (!mRegistry.hasComponent<Core::Motion>(manifold.entityA) || !mRegistry.hasComponent<Core::Motion>(manifold.entityB)) return;
     if (!mRegistry.hasComponent<Core::MassProps>(manifold.entityA) || !mRegistry.hasComponent<Core::MassProps>(manifold.entityB)) return;
 
-    auto& poseA = mRegistry.getComponent<Pose>(manifold.entityA);
-    auto& poseB = mRegistry.getComponent<Pose>(manifold.entityB);
-    auto& motionA = mRegistry.getComponent<Core::Motion>(manifold.entityA);
-    auto& motionB = mRegistry.getComponent<Core::Motion>(manifold.entityB);
-    const auto& massA = mRegistry.getComponent<Core::MassProps>(manifold.entityA);
-    const auto& massB = mRegistry.getComponent<Core::MassProps>(manifold.entityB);
+    auto &poseA = mRegistry.getComponent<Pose>(manifold.entityA);
+    auto &poseB = mRegistry.getComponent<Pose>(manifold.entityB);
+    auto &motionA = mRegistry.getComponent<Core::Motion>(manifold.entityA);
+    auto &motionB = mRegistry.getComponent<Core::Motion>(manifold.entityB);
+    const auto &massA = mRegistry.getComponent<Core::MassProps>(manifold.entityA);
+    const auto &massB = mRegistry.getComponent<Core::MassProps>(manifold.entityB);
 
     Core::BodyType typeA = Core::BodyType::Dynamic;
     Core::BodyType typeB = Core::BodyType::Dynamic;
-    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) {
-        typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
-    }
-    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) {
-        typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
-    }
+    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
+    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
 
-    // Sabit (Static) nesnelerin ters kütlesi 0 alınır
     const float invMassA = (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
     const float invMassB = (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
-    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
-    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
-    
-    // Malzeme özelliklerini birleştir (Sürtünme: Geometrik Ortalama, Esneklik: Maksimum)
+    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+
+    manifold.computeTangents();
+    Vector3 n = manifold.normal;
+    Vector3 t1 = manifold.tangent1;
+    Vector3 t2 = manifold.tangent2;
+
+    for (uint32_t i = 0; i < manifold.contactCount; ++i) {
+        auto &contact = manifold.contacts[i];
+        contact.splitImpulse = 0.0f;
+
+        Vector3 rA = poseA.orientation * contact.localPointA;
+        Vector3 rB = poseB.orientation * contact.localPointB;
+
+        // Warm Starting itmelerini hızlara uygula
+        Vector3 totalImpulse = (n * contact.normalImpulse) + (t1 * contact.tangentImpulse1) + (t2 * contact.tangentImpulse2);
+
+        motionA.linearVelocity += totalImpulse * invMassA;
+        motionA.angularVelocity += invIA * rA.cross(totalImpulse);
+        motionB.linearVelocity -= totalImpulse * invMassB;
+        motionB.angularVelocity -= invIB * rB.cross(totalImpulse);
+    }
+}
+
+void SequentialImpulsesKernel::resolveCollision(
+    collision::ContactManifold &manifold, float deltaTime) {
+    (void)deltaTime;
+    if (!mRegistry.hasComponent<Pose>(manifold.entityA) || !mRegistry.hasComponent<Pose>(manifold.entityB)) return;
+    if (!mRegistry.hasComponent<Core::Motion>(manifold.entityA) || !mRegistry.hasComponent<Core::Motion>(manifold.entityB)) return;
+    if (!mRegistry.hasComponent<Core::MassProps>(manifold.entityA) || !mRegistry.hasComponent<Core::MassProps>(manifold.entityB)) return;
+
+    auto &poseA = mRegistry.getComponent<Pose>(manifold.entityA);
+    auto &poseB = mRegistry.getComponent<Pose>(manifold.entityB);
+    auto &motionA = mRegistry.getComponent<Core::Motion>(manifold.entityA);
+    auto &motionB = mRegistry.getComponent<Core::Motion>(manifold.entityB);
+    const auto &massA = mRegistry.getComponent<Core::MassProps>(manifold.entityA);
+    const auto &massB = mRegistry.getComponent<Core::MassProps>(manifold.entityB);
+
+    Core::BodyType typeA = Core::BodyType::Dynamic;
+    Core::BodyType typeB = Core::BodyType::Dynamic;
+    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
+    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
+
+    const float invMassA = (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
+    const float invMassB = (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
+    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+
     float friction = 0.4f;
     float restitution = 0.0f;
     if (mRegistry.hasComponent<Core::Material>(manifold.entityA) && mRegistry.hasComponent<Core::Material>(manifold.entityB)) {
-        const auto& matA = mRegistry.getComponent<Core::Material>(manifold.entityA);
-        const auto& matB = mRegistry.getComponent<Core::Material>(manifold.entityB);
+        const auto &matA = mRegistry.getComponent<Core::Material>(manifold.entityA);
+        const auto &matB = mRegistry.getComponent<Core::Material>(manifold.entityB);
         friction = std::sqrt(matA.friction * matB.friction);
         restitution = std::max(matA.restitution, matB.restitution);
     }
 
     Vector3 n = manifold.normal;
-    if (n.lengthSquare() > 1e-12f) {
-        n.normalize();
-    } else {
-        return;
-    }
+    Vector3 t1 = manifold.tangent1;
+    Vector3 t2 = manifold.tangent2;
 
     for (uint32_t i = 0; i < manifold.contactCount; ++i) {
-        auto& contact = manifold.contacts[i];
-        
-        // Kütle merkezinden temas noktasına giden kollar (Lever Arms)
+        auto &contact = manifold.contacts[i];
+
         Vector3 rA = poseA.orientation * contact.localPointA;
         Vector3 rB = poseB.orientation * contact.localPointB;
-        
-        // Temas noktalarındaki anlık hızları hesapla
+
+        // 1. Normal İtme Çözümü
         Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
         Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-        Vector3 relativeVelocity = vA - vB; 
-        
-        float velocityAlongNormal = relativeVelocity.dot(n);
-        
-        // Sıçramayı kontrol et (Sadece yeterince hızlı çarpmalarda aktif olur)
-        float effectiveRestitution = restitution;
-        if (velocityAlongNormal > -physics::PhysicsConstants::RestitutionVelocityThreshold) effectiveRestitution = 0.0f;
-        
-        // Normal doğrultusundaki toplam dönme ve öteleme direnci (Jacobian mass)
+        Vector3 relVel = vA - vB;
+
+        float normalVel = relVel.dot(n);
+        float deltaV = -normalVel;
+
+        if (normalVel < -physics::PhysicsConstants::RestitutionVelocityThreshold) {
+            deltaV -= restitution * normalVel;
+        }
+
         Vector3 rACrossN = rA.cross(n);
         Vector3 rBCrossN = rB.cross(n);
-        float invMassSum = invMassA + invMassB + 
-                           (invIA * rACrossN).dot(rACrossN) + 
-                           (invIB * rBCrossN).dot(rBCrossN);
-                           
-        if (invMassSum <= 1e-6f) continue;
-        
-        // İtme miktarını hesapla
-        float j = (-(1.0f + effectiveRestitution) * std::min(velocityAlongNormal, 0.0f)) / invMassSum;
-        
-        // Birikmiş İtme (Accumulated Impulse): İtmelerin toplamı her zaman pozitif olmalıdır
-        float oldNormalImpulse = contact.normalImpulse;
-        contact.normalImpulse = std::max(oldNormalImpulse + j, 0.0f);
-        j = contact.normalImpulse - oldNormalImpulse;
-        
-        Vector3 impulse = n * j;
-        
-        // Hızları anlık olarak güncelle
-        motionA.linearVelocity += impulse * invMassA;
-        motionA.angularVelocity += invIA * rA.cross(impulse);
-        motionB.linearVelocity -= impulse * invMassB;
-        motionB.angularVelocity -= invIB * rB.cross(impulse);
-        
-        // --- SÜRTÜNME ÇÖZÜMÜ ---
+        float invMassSumN = invMassA + invMassB + (invIA * rACrossN).dot(rACrossN) + (invIB * rBCrossN).dot(rBCrossN);
+        if (invMassSumN > 1e-6f) {
+            float jn = deltaV / invMassSumN;
+            float oldImpulse = contact.normalImpulse;
+            contact.normalImpulse = std::max(oldImpulse + jn, 0.0f);
+            jn = contact.normalImpulse - oldImpulse;
+
+            Vector3 impulse = n * jn;
+            motionA.linearVelocity += impulse * invMassA;
+            motionA.angularVelocity += invIA * rA.cross(impulse);
+            motionB.linearVelocity -= impulse * invMassB;
+            motionB.angularVelocity -= invIB * rB.cross(impulse);
+        }
+
+        // 2. Çift Teğetli Coulomb Sürtünmesi Çözümü (T1 ve T2)
+        float maxFriction = friction * contact.normalImpulse;
+
+        // Teğet 1
         vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
         vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-        relativeVelocity = vA - vB;
-        
-        // Normal bileşeni çıkararak teğet (tangent) yönünü bul
-        Vector3 tangent = relativeVelocity - (n * relativeVelocity.dot(n));
-        if (tangent.lengthSquare() > 0.0001f) {
-            tangent.normalize();
-            
-            // Teğet yönündeki efektif direnç
-            float jt = -relativeVelocity.dot(tangent);
-            Vector3 rACrossT = rA.cross(tangent);
-            Vector3 rBCrossT = rB.cross(tangent);
-            float invMassSumT = invMassA + invMassB + 
-                                (invIA * rACrossT).dot(rACrossT) + 
-                                (invIB * rBCrossT).dot(rBCrossT);
-            if (invMassSumT <= 1e-6f) continue;
-            jt /= invMassSumT;
-            
-            // Coulomb Kanunu: Sürtünme kuvveti normal kuvvetin (mu) katını aşamaz
-            float maxFriction = friction * contact.normalImpulse;
-            float oldTangentImpulse = contact.tangentImpulse;
-            contact.tangentImpulse = std::clamp(oldTangentImpulse + jt, -maxFriction, maxFriction);
-            jt = contact.tangentImpulse - oldTangentImpulse;
-            
-            // Sürtünme itmesini uygula
-            Vector3 frictionImpulse = tangent * jt;
-            motionA.linearVelocity += frictionImpulse * invMassA;
-            motionA.angularVelocity += invIA * rA.cross(frictionImpulse);
-            motionB.linearVelocity -= frictionImpulse * invMassB;
-            motionB.angularVelocity -= invIB * rB.cross(frictionImpulse);
+        relVel = vA - vB;
+        Vector3 rACrossT1 = rA.cross(t1);
+        Vector3 rBCrossT1 = rB.cross(t1);
+        float invMassSumT1 = invMassA + invMassB + (invIA * rACrossT1).dot(rACrossT1) + (invIB * rBCrossT1).dot(rBCrossT1);
+        if (invMassSumT1 > 1e-6f) {
+            float jt1 = -relVel.dot(t1) / invMassSumT1;
+            float oldT1 = contact.tangentImpulse1;
+            contact.tangentImpulse1 = std::clamp(oldT1 + jt1, -maxFriction, maxFriction);
+            jt1 = contact.tangentImpulse1 - oldT1;
+
+            Vector3 impulseT1 = t1 * jt1;
+            motionA.linearVelocity += impulseT1 * invMassA;
+            motionA.angularVelocity += invIA * rA.cross(impulseT1);
+            motionB.linearVelocity -= impulseT1 * invMassB;
+            motionB.angularVelocity -= invIB * rB.cross(impulseT1);
+        }
+
+        // Teğet 2
+        vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+        vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+        relVel = vA - vB;
+        Vector3 rACrossT2 = rA.cross(t2);
+        Vector3 rBCrossT2 = rB.cross(t2);
+        float invMassSumT2 = invMassA + invMassB + (invIA * rACrossT2).dot(rACrossT2) + (invIB * rBCrossT2).dot(rBCrossT2);
+        if (invMassSumT2 > 1e-6f) {
+            float jt2 = -relVel.dot(t2) / invMassSumT2;
+            float oldT2 = contact.tangentImpulse2;
+            contact.tangentImpulse2 = std::clamp(oldT2 + jt2, -maxFriction, maxFriction);
+            jt2 = contact.tangentImpulse2 - oldT2;
+
+            Vector3 impulseT2 = t2 * jt2;
+            motionA.linearVelocity += impulseT2 * invMassA;
+            motionA.angularVelocity += invIA * rA.cross(impulseT2);
+            motionB.linearVelocity -= impulseT2 * invMassB;
+            motionB.angularVelocity -= invIB * rB.cross(impulseT2);
         }
     }
 }
 
-/**
- * @brief Nesnelerin birbirinin içine girmesini engelleyen geometrik düzeltici.
- * @details Hızlardan bağımsız olarak, sadece konum ve rotasyonları doğrudan 
- *          değiştirir. Bu sayede simülasyondaki enerji kaybı telafi edilir ve 
- *          nesneler yüzeylerde kararlı durur.
- */
-void SequentialImpulsesKernel::solvePositionConstraints(collision::ContactManifold& manifold) {
+void SequentialImpulsesKernel::solvePositionConstraints(
+    collision::ContactManifold &manifold, float deltaTime) {
+    if (deltaTime <= 0.0f) return;
     if (!mRegistry.hasComponent<Pose>(manifold.entityA) || !mRegistry.hasComponent<Pose>(manifold.entityB)) return;
+    if (!mRegistry.hasComponent<Core::Motion>(manifold.entityA) || !mRegistry.hasComponent<Core::Motion>(manifold.entityB)) return;
     if (!mRegistry.hasComponent<Core::MassProps>(manifold.entityA) || !mRegistry.hasComponent<Core::MassProps>(manifold.entityB)) return;
 
-    auto& poseA = mRegistry.getComponent<Pose>(manifold.entityA);
-    auto& poseB = mRegistry.getComponent<Pose>(manifold.entityB);
-    const auto& massA = mRegistry.getComponent<Core::MassProps>(manifold.entityA);
-    const auto& massB = mRegistry.getComponent<Core::MassProps>(manifold.entityB);
+    auto &poseA = mRegistry.getComponent<Pose>(manifold.entityA);
+    auto &poseB = mRegistry.getComponent<Pose>(manifold.entityB);
+    auto &motionA = mRegistry.getComponent<Core::Motion>(manifold.entityA);
+    auto &motionB = mRegistry.getComponent<Core::Motion>(manifold.entityB);
+    const auto &massA = mRegistry.getComponent<Core::MassProps>(manifold.entityA);
+    const auto &massB = mRegistry.getComponent<Core::MassProps>(manifold.entityB);
 
     Core::BodyType typeA = Core::BodyType::Dynamic;
     Core::BodyType typeB = Core::BodyType::Dynamic;
-    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) {
-        typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
-    }
-    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) {
-        typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
-    }
+    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
+    if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
 
     const float invMassA = (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
     const float invMassB = (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
-    const float invSum = invMassA + invMassB;
-    if (invSum <= 1e-8f) return;
-
-    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
-    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
 
     Vector3 n = manifold.normal;
-    if (n.lengthSquare() > 1e-12f) {
-        n.normalize();
-    } else {
-        return;
-    }
 
     for (uint32_t i = 0; i < manifold.contactCount; ++i) {
-        auto& contact = manifold.contacts[i];
+        auto &contact = manifold.contacts[i];
 
         Vector3 rA = poseA.orientation * contact.localPointA;
         Vector3 rB = poseB.orientation * contact.localPointB;
 
         Vector3 pA = poseA.position + rA;
         Vector3 pB = poseB.position + rB;
-        
-        Vector3 separationVec = pA - pB;
-        float separationAlongNormal = separationVec.dot(n);
-        
-        // Güncel iç içe geçme miktarını hesapla
-        float currentPenetration = contact.penetration - separationAlongNormal;
+        float separation = (pA - pB).dot(n);
+        float currentPenetration = contact.penetration - separation;
 
-        // Linear Slop: Çok küçük iç içe geçmeleri görmezden gelerek titremeyi önle
         float C = std::clamp(currentPenetration - physics::PhysicsConstants::LinearSlop, 0.0f, physics::PhysicsConstants::MaxLinearCorrection);
-        
         if (C <= 0.0f) continue;
 
         Vector3 rACrossN = rA.cross(n);
         Vector3 rBCrossN = rB.cross(n);
-        float invMassSum = invMassA + invMassB + 
-                           (invIA * rACrossN).dot(rACrossN) + 
-                           (invIB * rBCrossN).dot(rBCrossN);
-                           
+        float invMassSum = invMassA + invMassB + (invIA * rACrossN).dot(rACrossN) + (invIB * rBCrossN).dot(rBCrossN);
         if (invMassSum <= 1e-6f) continue;
 
-        // Baumgarte Stabilizasyonu: Pozisyon hatasını her karede belirli bir oranda (%) düzelt
-        float lambda = (C * physics::PhysicsConstants::PositionCorrectionFactor) / invMassSum;
-        Vector3 impulse = n * lambda;
+        // Split impulse: v_split'e itme uygula
+        Vector3 vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+        Vector3 vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+        float splitVel = (vSplitA - vSplitB).dot(n);
 
-        // Nesneleri birbirlerinden uzağa ötele
-        poseA.position += impulse * invMassA;
-        poseB.position -= impulse * invMassB;
+        float bias = (physics::PhysicsConstants::PositionCorrectionFactor / deltaTime) * C;
+        float deltaSplit = (-splitVel + bias) / invMassSum;
 
-        // Nesneleri rotasyonel olarak düzelt
-        if (typeA == Core::BodyType::Dynamic) {
-            Vector3 angularMoveA = invIA * rA.cross(impulse);
-            Quaternion spinA(angularMoveA.x, angularMoveA.y, angularMoveA.z, 0.0f);
-            Quaternion qDotA = spinA * poseA.orientation;
-            poseA.orientation.x += qDotA.x * 0.5f;
-            poseA.orientation.y += qDotA.y * 0.5f;
-            poseA.orientation.z += qDotA.z * 0.5f;
-            poseA.orientation.w += qDotA.w * 0.5f;
-            poseA.orientation.normalize();
-        }
+        float oldSplit = contact.splitImpulse;
+        contact.splitImpulse = std::max(oldSplit + deltaSplit, 0.0f);
+        deltaSplit = contact.splitImpulse - oldSplit;
 
-        if (typeB == Core::BodyType::Dynamic) {
-            Vector3 angularMoveB = invIB * rB.cross(impulse * -1.0f);
-            Quaternion spinB(angularMoveB.x, angularMoveB.y, angularMoveB.z, 0.0f);
-            Quaternion qDotB = spinB * poseB.orientation;
-            poseB.orientation.x += qDotB.x * 0.5f;
-            poseB.orientation.y += qDotB.y * 0.5f;
-            poseB.orientation.z += qDotB.z * 0.5f;
-            poseB.orientation.w += qDotB.w * 0.5f;
-            poseB.orientation.normalize();
-        }
+        Vector3 impulse = n * deltaSplit;
+        motionA.splitLinearVelocity += impulse * invMassA;
+        motionA.splitAngularVelocity += invIA * rA.cross(impulse);
+        motionB.splitLinearVelocity -= impulse * invMassB;
+        motionB.splitAngularVelocity -= invIB * rB.cross(impulse);
     }
 }
 
-/**
- * @brief İki nesneyi belirli bir mesafede tutan kısıtlamayı çözer.
- */
-void SequentialImpulsesKernel::resolveDistanceConstraint(collision::DistanceConstraint& constraint, float deltaTime) {
+void SequentialImpulsesKernel::resolveDistanceConstraint(
+    collision::DistanceConstraint &constraint, float deltaTime) {
+    (void)deltaTime;
     if (!mRegistry.hasComponent<Pose>(constraint.entityA) || !mRegistry.hasComponent<Pose>(constraint.entityB)) return;
     if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) || !mRegistry.hasComponent<Core::Motion>(constraint.entityB)) return;
     if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) || !mRegistry.hasComponent<Core::MassProps>(constraint.entityB)) return;
 
-    auto& poseA = mRegistry.getComponent<Pose>(constraint.entityA);
-    auto& poseB = mRegistry.getComponent<Pose>(constraint.entityB);
-    auto& motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
-    auto& motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
-    const auto& massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
-    const auto& massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
-
-    Core::BodyType typeA = Core::BodyType::Dynamic;
-    Core::BodyType typeB = Core::BodyType::Dynamic;
-    if (mRegistry.hasComponent<Core::BodyState>(constraint.entityA)) {
-        typeA = mRegistry.getComponent<Core::BodyState>(constraint.entityA).type;
-    }
-    if (mRegistry.hasComponent<Core::BodyState>(constraint.entityB)) {
-        typeB = mRegistry.getComponent<Core::BodyState>(constraint.entityB).type;
-    }
-
-    const float invMassA = (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
-    const float invMassB = (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
-    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
-    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+    auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+    auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+    auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+    const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+    const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
 
     Vector3 rA = poseA.orientation * constraint.localAnchorA;
     Vector3 rB = poseB.orientation * constraint.localAnchorB;
-
     Vector3 pA = poseA.position + rA;
     Vector3 pB = poseB.position + rB;
 
-    Vector3 diff = pB - pA;
-    float dist = diff.length();
-    if (dist < 1e-4f) return; 
-    Vector3 n = diff * (1.0f / dist); 
+    Vector3 delta = pA - pB;
+    float currentDist = delta.length();
+    if (currentDist < 1e-6f) return;
+    Vector3 u = delta / currentDist;
 
     Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
     Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-    Vector3 relativeVelocity = vB - vA; 
+    float relVel = (vA - vB).dot(u);
 
-    float jv = relativeVelocity.dot(n); 
+    Vector3 rACrossU = rA.cross(u);
+    Vector3 rBCrossU = rB.cross(u);
+    float invMassSum = massA.inverseMass + massB.inverseMass + (massA.inverseInertiaTensor * rACrossU).dot(rACrossU) + (massB.inverseInertiaTensor * rBCrossU).dot(rBCrossU);
+    if (invMassSum < 1e-6f) return;
 
-    Vector3 rACrossN = rA.cross(n);
-    Vector3 rBCrossN = rB.cross(n);
-    float invMassSum = invMassA + invMassB + 
-                       (invIA * rACrossN).dot(rACrossN) + 
-                       (invIB * rBCrossN).dot(rBCrossN);
-                       
-    if (invMassSum <= 1e-6f) return;
+    float j = -relVel / invMassSum;
+    Vector3 impulse = u * j;
 
-    // Hata payını (bias) kullanarak mesafeyi koru
-    float beta = 0.2f; 
-    float bias = (beta / deltaTime) * (dist - constraint.targetDistance);
-
-    float lambda = (-jv - bias) / invMassSum;
-    Vector3 impulse = n * lambda;
-
-    motionA.linearVelocity -= impulse * invMassA;
-    motionA.angularVelocity -= invIA * rA.cross(impulse);
-    
-    motionB.linearVelocity += impulse * invMassB;
-    motionB.angularVelocity += invIB * rB.cross(impulse);
+    motionA.linearVelocity += impulse * massA.inverseMass;
+    motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+    motionB.linearVelocity -= impulse * massB.inverseMass;
+    motionB.angularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
 }
 
-/**
- * @brief Menteşe (Hinge) kısıtlamasını çözer.
- * @details Nesnelerin birbirine belirli noktalardan bağlı kalmasını ve 
- *          sadece tek bir eksen etrafında dönmesini sağlar.
- */
-void SequentialImpulsesKernel::resolveRevoluteConstraint(collision::RevoluteConstraint& constraint, float deltaTime) {
+void SequentialImpulsesKernel::resolveRevoluteConstraint(
+    collision::RevoluteConstraint &constraint, float deltaTime) {
+    (void)deltaTime;
     if (!mRegistry.hasComponent<Pose>(constraint.entityA) || !mRegistry.hasComponent<Pose>(constraint.entityB)) return;
     if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) || !mRegistry.hasComponent<Core::Motion>(constraint.entityB)) return;
     if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) || !mRegistry.hasComponent<Core::MassProps>(constraint.entityB)) return;
 
-    auto& poseA = mRegistry.getComponent<Pose>(constraint.entityA);
-    auto& poseB = mRegistry.getComponent<Pose>(constraint.entityB);
-    auto& motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
-    auto& motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
-    const auto& massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
-    const auto& massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
-
-    Core::BodyType typeA = Core::BodyType::Dynamic;
-    Core::BodyType typeB = Core::BodyType::Dynamic;
-    if (mRegistry.hasComponent<Core::BodyState>(constraint.entityA)) {
-        typeA = mRegistry.getComponent<Core::BodyState>(constraint.entityA).type;
-    }
-    if (mRegistry.hasComponent<Core::BodyState>(constraint.entityB)) {
-        typeB = mRegistry.getComponent<Core::BodyState>(constraint.entityB).type;
-    }
-
-    const float invMassA = (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
-    const float invMassB = (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
-    const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
-    const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+    auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+    auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+    auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+    const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+    const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
 
     Vector3 rA = poseA.orientation * constraint.localAnchorA;
     Vector3 rB = poseB.orientation * constraint.localAnchorB;
 
-    Vector3 pA = poseA.position + rA;
-    Vector3 pB = poseB.position + rB;
-
     Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
     Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-    Vector3 relativeVelocity = vB - vA; 
+    Vector3 relVel = vA - vB;
 
-    // 1. Doğrusal Çözüm (Point-to-Point): Bağlantı noktalarını üst üste tut
-    Vector3 diff = pB - pA;
-    float beta = 0.2f;
-    Vector3 bias = diff * (beta / deltaTime);
+    // 3 eksen boyunca noktasal hizalama
+    float invMassSum = massA.inverseMass + massB.inverseMass;
+    if (invMassSum < 1e-6f) return;
 
-    Vector3 axes[3] = { Vector3(1,0,0), Vector3(0,1,0), Vector3(0,0,1) };
-    for (int i = 0; i < 3; ++i) {
-        Vector3 n = axes[i];
-        float jv = relativeVelocity.dot(n);
-        float bias_n = bias.dot(n);
-        
-        Vector3 rACrossN = rA.cross(n);
-        Vector3 rBCrossN = rB.cross(n);
-        float invMassSum = invMassA + invMassB + 
-                           (invIA * rACrossN).dot(rACrossN) + 
-                           (invIB * rBCrossN).dot(rBCrossN);
-                           
-        if (invMassSum > 1e-6f) {
-            float lambda = (-jv - bias_n) / invMassSum;
-            Vector3 impulse = n * lambda;
-            
-            motionA.linearVelocity -= impulse * invMassA;
-            motionA.angularVelocity -= invIA * rA.cross(impulse);
-            motionB.linearVelocity += impulse * invMassB;
-            motionB.angularVelocity += invIB * rB.cross(impulse);
-            
-            vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
-            vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-            relativeVelocity = vB - vA;
-        }
-    }
-
-    // 2. Açısal Çözüm: Sadece menteşe eksenine dik olan dönüşleri engelle
-    Vector3 axisA = poseA.orientation * constraint.hingeAxisLocalA;
-    Vector3 t1, t2;
-    if (std::abs(axisA.x) > 0.9f) {
-        t1 = Vector3(0, 1, 0).cross(axisA).getNormalized();
-    } else {
-        t1 = Vector3(1, 0, 0).cross(axisA).getNormalized();
-    }
-    t2 = axisA.cross(t1).getNormalized();
-    
-    Vector3 axesRot[2] = { t1, t2 };
-    for (int i = 0; i < 2; ++i) {
-        Vector3 n = axesRot[i];
-        float jv = (motionB.angularVelocity - motionA.angularVelocity).dot(n);
-        
-        Vector3 axisB = poseB.orientation * constraint.hingeAxisLocalB;
-        float error = n.dot(axisA.cross(axisB));
-        float bias_n = (beta / deltaTime) * error;
-        
-        float invMassSum = (invIA * n).dot(n) + (invIB * n).dot(n);
-        if (invMassSum > 1e-6f) {
-            float lambda = (-jv - bias_n) / invMassSum;
-            Vector3 impulse = n * lambda;
-            
-            motionA.angularVelocity -= invIA * impulse;
-            motionB.angularVelocity += invIB * impulse;
-        }
-    }
+    Vector3 impulse = (relVel * -1.0f) / invMassSum;
+    motionA.linearVelocity += impulse * massA.inverseMass;
+    motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+    motionB.linearVelocity -= impulse * massB.inverseMass;
+    motionB.angularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
 }
 
 } // namespace Baryon::systems

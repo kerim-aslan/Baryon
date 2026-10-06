@@ -18,14 +18,14 @@ struct PhysicsConstants {
      * @details Nesnelerin birbirinin içine geçmesine izin verilen maksimum mesafedir.
      *          Üst üste duran nesnelerdeki mikroskobik titreşimleri (jitter) önler.
      */
-    static constexpr float LinearSlop = 0.005f; 
+    static constexpr float LinearSlop = 0.01f; 
 
     /**
      * @brief İç içe geçme durumlarındaki pozisyon düzeltme oranı.
      * @details Kalan iç içe geçme mesafesinin her adımda yüzde kaçının düzeltileceğini belirler.
      *          Değerin çok yüksek olması yaylanmaya, düşük olması ise yavaş ayrılmaya neden olur.
      */
-    static constexpr float PositionCorrectionFactor = 0.5f;
+   static constexpr float PositionCorrectionFactor = 0.2f;
 
     /**
      * @brief Tek bir adımda yapılabilecek maksimum konum düzeltme miktarı.

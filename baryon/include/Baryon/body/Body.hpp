@@ -141,12 +141,14 @@ public:
             massProps.inverseMass = 0.0f; 
             motion.linearVelocity = Vector3(0, 0, 0);
             motion.angularVelocity = Vector3(0, 0, 0);
+            motion.splitLinearVelocity = Vector3(0, 0, 0);
+            motion.splitAngularVelocity = Vector3(0, 0, 0);
             massProps.inverseInertiaTensor = Matrix3x3(0,0,0,0,0,0,0,0,0);
             state.isSleeping = false;
             state.sleepTimer = 0.0f;
         } else {
             massProps.inverseMass = (massProps.mass > 0) ? 1.0f / massProps.mass : 1.0f;
-            massProps.inverseInertiaTensor = massProps.localInertiaTensor.getInverse();
+            massProps.inverseInertiaTensor = massProps.inverseLocalInertiaTensor;
         }
         return *this;
     }
@@ -175,7 +177,8 @@ public:
         if (!isActive() || !mRegistry->hasComponent<Core::MassProps>(mEntity)) return std::unexpected(PhysicsError::EntityDead);
         auto& massProps = mRegistry->getComponent<Core::MassProps>(mEntity);
         massProps.localInertiaTensor = I;
-        massProps.inverseInertiaTensor = I.getInverse();
+        massProps.inverseLocalInertiaTensor = I.getInverse();
+        massProps.inverseInertiaTensor = massProps.inverseLocalInertiaTensor;
         return *this;
     }
 };

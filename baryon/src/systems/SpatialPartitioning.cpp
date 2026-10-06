@@ -186,15 +186,39 @@ void SpatialPartitioning::step() {
     }
 
     // Aşama 2: Kesişen sınır kutuları üzerinden potansiyel adayları belirle
+    // OPTİMİZASYON: Yalnızca hareket eden / uyanık dinamik nesneler sorgu başlatır!
+    // Statik zemin veya uyuyan bloklar gereksiz yere yüzlerce ağaç araması yapmaz.
     for (auto&& [entityA, colliderA] : std::views::zip(entities, colliders)) {
         if (colliderA.treeNodeIndex == collision::NULL_NODE) continue;
+
+        bool isA_DynamicAndAwake = true;
+        if (mRegistry.hasComponent<Core::BodyState>(entityA)) {
+            const auto& stA = mRegistry.getComponent<Core::BodyState>(entityA);
+            if (stA.type == Core::BodyType::Static || stA.isSleeping) {
+                isA_DynamicAndAwake = false;
+            }
+        }
+        if (!isA_DynamicAndAwake) continue;
 
         const auto& aabbA = mTree.getNodeAABB(colliderA.treeNodeIndex);
 
         mTree.query(aabbA, [&](ecs::Entity entityB) {
-            // Sadece bir yönde (A < B) kayıt yaparak çift tekrarını ve kendi kendine çarpışmayı önle
-            if (entityA.id < entityB.id) {
+            if (entityA.id == entityB.id) return;
+
+            bool isB_Static = false;
+            bool isB_Sleeping = false;
+            if (mRegistry.hasComponent<Core::BodyState>(entityB)) {
+                const auto& stB = mRegistry.getComponent<Core::BodyState>(entityB);
+                isB_Static = (stB.type == Core::BodyType::Static);
+                isB_Sleeping = stB.isSleeping;
+            }
+
+            if (isB_Static || isB_Sleeping) {
                 mPotentialCollisions.emplace_back(entityA, entityB);
+            } else {
+                if (entityA.id < entityB.id) {
+                    mPotentialCollisions.emplace_back(entityA, entityB);
+                }
             }
         });
     }

@@ -33,6 +33,7 @@ void CollisionSystem::step() {
     // Warm starting için önceki kareden kalan temas verilerini yedekle
     std::unordered_map<uint64_t, collision::ContactManifold> oldManifoldMap = std::move(mManifoldMap);
     mManifoldMap.clear();
+    mManifoldMap.reserve(pairs.size());
 
     auto wakeIfSleeping = [&](ecs::Entity e) {
         if (!mRegistry.hasComponent<Core::BodyState>(e)) return;
@@ -45,6 +46,13 @@ void CollisionSystem::step() {
     for (const auto& [entityA, entityB] : pairs) {
         if (!mRegistry.hasComponent<Pose>(entityA) || !mRegistry.hasComponent<Pose>(entityB)) continue;
         if (!mRegistry.hasComponent<ecs::ColliderData>(entityA) || !mRegistry.hasComponent<ecs::ColliderData>(entityB)) continue;
+
+        // Statik-Statik çiftlerini doğrudan ele
+        Core::BodyType typeA = Core::BodyType::Dynamic;
+        Core::BodyType typeB = Core::BodyType::Dynamic;
+        if (mRegistry.hasComponent<Core::BodyState>(entityA)) typeA = mRegistry.getComponent<Core::BodyState>(entityA).type;
+        if (mRegistry.hasComponent<Core::BodyState>(entityB)) typeB = mRegistry.getComponent<Core::BodyState>(entityB).type;
+        if (typeA == Core::BodyType::Static && typeB == Core::BodyType::Static) continue;
 
         const auto& transA = mRegistry.getComponent<Pose>(entityA);
         const auto& transB = mRegistry.getComponent<Pose>(entityB);
@@ -93,7 +101,6 @@ void CollisionSystem::step() {
                         auto [it, inserted] = mManifoldMap.try_emplace(key, entConv, entMesh);
                         Vector3 currentNormal = isMeshB ? info.normal : info.normal * -1.0f;
                         
-                        // Normal yönü ani değişirse (köşe çarpışmaları) manifold'u sıfırla
                         if (!inserted && it->second.contactCount > 0 && it->second.normal.dot(currentNormal) < 0.95f) {
                             it->second.contactCount = 0;
                         }
@@ -101,6 +108,7 @@ void CollisionSystem::step() {
                         if (info.penetration > it->second.penetration || it->second.contactCount == 0) {
                             it->second.normal = currentNormal;
                             it->second.penetration = info.penetration;
+                            it->second.computeTangents();
                         }
                         
                         collision::ContactPoint cp;
@@ -109,13 +117,14 @@ void CollisionSystem::step() {
                         cp.localPointB = transMesh.orientation.getConjugate() * (cp.worldPosition - transMesh.position);
                         cp.penetration = info.penetration;
                         cp.normalImpulse = 0.0f;
-                        cp.tangentImpulse = 0.0f;
+                        cp.tangentImpulse1 = 0.0f;
+                        cp.tangentImpulse2 = 0.0f;
+                        cp.splitImpulse = 0.0f;
                         
-                        // Sıcak Başlatma: Eski kuvvetleri yeni noktaya aktar
                         auto oldIt = oldManifoldMap.find(key);
                         if (oldIt != oldManifoldMap.end()) {
                             int bestMatch = -1;
-                            float closestDistSq = 0.02f; 
+                            float closestDistSq = 0.04f; 
                             for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
                                 float distSq = (oldIt->second.contacts[j].localPointA - cp.localPointA).lengthSquare();
                                 if (distSq < closestDistSq) {
@@ -125,24 +134,8 @@ void CollisionSystem::step() {
                             }
                             if (bestMatch != -1) {
                                 cp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
-                                cp.tangentImpulse = oldIt->second.contacts[bestMatch].tangentImpulse;
-                            }
-
-                            // Kalıcı Manifold: Hala geçerli olan eski noktaları listede tut
-                            if (inserted) {
-                                for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
-                                    if (static_cast<int>(j) == bestMatch) continue; 
-                                    auto& oldCp = oldIt->second.contacts[j];
-                                    Vector3 globalA = transConv.position + (transConv.orientation * oldCp.localPointA);
-                                    Vector3 globalB = transMesh.position + (transMesh.orientation * oldCp.localPointB);
-                                    float distance = (globalA - globalB).dot(it->second.normal);
-                                    float tangentialDist = ((globalA - globalB) - (it->second.normal * distance)).lengthSquare();
-                                    
-                                    if (distance < 0.05f && tangentialDist < 0.01f) {
-                                        oldCp.penetration = std::max(0.0f, distance);
-                                        if (it->second.contactCount < 3) it->second.addContact(oldCp);
-                                    }
-                                }
+                                cp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                                cp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
                             }
                         }
 
@@ -152,72 +145,116 @@ void CollisionSystem::step() {
                 }
             });
         } else {
-            // İki konveks nesne (Kutu, Küre vb.) arası kesin çarpışma testi
-            collision::Simplex simplex;
-            if (collision::NarrowPhase::GJK(collA.shape, transA, collB.shape, transB, simplex)) {
-                collision::CollisionInfo info = collision::NarrowPhase::EPA(simplex, collA.shape, transA, collB.shape, transB);
-                
-                if (info.hasCollision) {
+            // İki konveks nesne arası kesin çarpışma testi
+            bool isBoxA = std::holds_alternative<collision::BoxShape>(collA.shape.getVariant());
+            bool isBoxB = std::holds_alternative<collision::BoxShape>(collB.shape.getVariant());
+            bool isSphereA = std::holds_alternative<collision::SphereShape>(collA.shape.getVariant());
+            bool isSphereB = std::holds_alternative<collision::SphereShape>(collB.shape.getVariant());
+
+            uint32_t id1 = entityA.id; uint32_t id2 = entityB.id;
+            if (id1 > id2) std::swap(id1, id2);
+            uint64_t key = (static_cast<uint64_t>(id1) << 32) | static_cast<uint64_t>(id2);
+
+            if (isBoxA && isBoxB) {
+                collision::ContactManifold satManifold(entityA, entityB);
+                const auto& bA = std::get<collision::BoxShape>(collA.shape.getVariant());
+                const auto& bB = std::get<collision::BoxShape>(collB.shape.getVariant());
+                if (collision::NarrowPhase::testBoxBox(bA, transA, bB, transB, satManifold)) {
+                    if (satManifold.penetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
+                        wakeIfSleeping(entityA);
+                        wakeIfSleeping(entityB);
+                    }
+
+                    // Warm-starting itmelerini eşleştir
+                    auto oldIt = oldManifoldMap.find(key);
+                    if (oldIt != oldManifoldMap.end()) {
+                        for (uint32_t cIdx = 0; cIdx < satManifold.contactCount; ++cIdx) {
+                            auto& newCp = satManifold.contacts[cIdx];
+                            float closestDistSq = 0.04f;
+                            int bestMatch = -1;
+                            for (uint32_t oIdx = 0; oIdx < oldIt->second.contactCount; ++oIdx) {
+                                float distSq = (oldIt->second.contacts[oIdx].localPointA - newCp.localPointA).lengthSquare();
+                                if (distSq < closestDistSq) {
+                                    closestDistSq = distSq;
+                                    bestMatch = oIdx;
+                                }
+                            }
+                            if (bestMatch != -1) {
+                                newCp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
+                                newCp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                                newCp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
+                            }
+                        }
+                    }
+
+                    satManifold.computeTangents();
+                    mManifoldMap.insert_or_assign(key, satManifold);
+                }
+            } else {
+                collision::CollisionInfo info;
+                bool hasCollided = false;
+
+                if (isSphereA && isSphereB) {
+                    const auto& spA = std::get<collision::SphereShape>(collA.shape.getVariant());
+                    const auto& spB = std::get<collision::SphereShape>(collB.shape.getVariant());
+                    hasCollided = collision::NarrowPhase::testSphereSphere(spA, transA, spB, transB, info);
+                } else if (isSphereA && isBoxB) {
+                    const auto& spA = std::get<collision::SphereShape>(collA.shape.getVariant());
+                    const auto& bB = std::get<collision::BoxShape>(collB.shape.getVariant());
+                    hasCollided = collision::NarrowPhase::testSphereBox(spA, transA, bB, transB, info);
+                } else if (isBoxA && isSphereB) {
+                    const auto& bA = std::get<collision::BoxShape>(collA.shape.getVariant());
+                    const auto& spB = std::get<collision::SphereShape>(collB.shape.getVariant());
+                    hasCollided = collision::NarrowPhase::testSphereBox(spB, transB, bA, transA, info);
+                    if (hasCollided) {
+                        info.normal = -info.normal; // Normal must point B to A
+                    }
+                } else {
+                    collision::Simplex simplex;
+                    if (collision::NarrowPhase::GJK(collA.shape, transA, collB.shape, transB, simplex)) {
+                        info = collision::NarrowPhase::EPA(simplex, collA.shape, transA, collB.shape, transB);
+                        hasCollided = info.hasCollision;
+                    }
+                }
+
+                if (hasCollided) {
                     if (info.penetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
                         wakeIfSleeping(entityA);
                         wakeIfSleeping(entityB);
                     }
-                    
-                    uint32_t id1 = entityA.id; uint32_t id2 = entityB.id;
-                    if (id1 > id2) std::swap(id1, id2);
-                    uint64_t key = (static_cast<uint64_t>(id1) << 32) | static_cast<uint64_t>(id2);
 
                     auto [it, inserted] = mManifoldMap.try_emplace(key, entityA, entityB);
+                    it->second.normal = info.normal;
+                    it->second.penetration = info.penetration;
+                    it->second.computeTangents();
 
-                    if (!inserted && it->second.contactCount > 0 && it->second.normal.dot(info.normal) < 0.95f) {
-                        it->second.contactCount = 0;
-                    }
-
-                    if (info.penetration > it->second.penetration || it->second.contactCount == 0) {
-                        it->second.normal = info.normal;
-                        it->second.penetration = info.penetration;
-                    }
-                    
                     collision::ContactPoint cp;
                     cp.worldPosition = info.contactPoint;
                     cp.localPointA = transA.orientation.getConjugate() * (cp.worldPosition - transA.position);
                     cp.localPointB = transB.orientation.getConjugate() * (cp.worldPosition - transB.position);
                     cp.penetration = info.penetration;
                     cp.normalImpulse = 0.0f;
-                    cp.tangentImpulse = 0.0f;
-                    
+                    cp.tangentImpulse1 = 0.0f;
+                    cp.tangentImpulse2 = 0.0f;
+                    cp.splitImpulse = 0.0f;
+
                     auto oldIt = oldManifoldMap.find(key);
                     if (oldIt != oldManifoldMap.end()) {
                         int bestMatch = -1;
-                        float closestDistSq = 0.02f;
+                        float closestDistSq = 0.04f;
                         for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
                             float distSq = (oldIt->second.contacts[j].localPointA - cp.localPointA).lengthSquare();
                             if (distSq < closestDistSq) { closestDistSq = distSq; bestMatch = j; }
                         }
                         if (bestMatch != -1) {
                             cp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
-                            cp.tangentImpulse = oldIt->second.contacts[bestMatch].tangentImpulse;
-                        }
-
-                        if (inserted) {
-                            for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
-                                if (static_cast<int>(j) == bestMatch) continue; 
-                                auto& oldCp = oldIt->second.contacts[j];
-                                Vector3 globalA = transA.position + (transA.orientation * oldCp.localPointA);
-                                Vector3 globalB = transB.position + (transB.orientation * oldCp.localPointB);
-                                float distance = (globalA - globalB).dot(it->second.normal);
-                                float tangentialDist = ((globalA - globalB) - (it->second.normal * distance)).lengthSquare();
-                                
-                                if (distance < 0.05f && tangentialDist < 0.01f) {
-                                    oldCp.penetration = std::max(0.0f, distance);
-                                    if (it->second.contactCount < 3) it->second.addContact(oldCp);
-                                }
-                            }
+                            cp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                            cp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
                         }
                     }
 
-                    if (it->second.contactCount < 4) it->second.addContact(cp);
-                    else it->second.contacts[3] = cp;
+                    it->second.contactCount = 0;
+                    it->second.addContact(cp);
                 }
             }
         }
@@ -264,6 +301,7 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
 
     // Hareket yolunu kapsayan genişletilmiş sınır kutusu (Sweep AABB)
     Vector3 sweepEnd = transform.position + (motion.linearVelocity * deltaTime);
+    (void)sweepEnd;
     collision::AABB sweepAABB = aabbA;
     sweepAABB.minBounds += Vector3(std::min(0.0f, motion.linearVelocity.x * deltaTime), std::min(0.0f, motion.linearVelocity.y * deltaTime), std::min(0.0f, motion.linearVelocity.z * deltaTime));
     sweepAABB.maxBounds += Vector3(std::max(0.0f, motion.linearVelocity.x * deltaTime), std::max(0.0f, motion.linearVelocity.y * deltaTime), std::max(0.0f, motion.linearVelocity.z * deltaTime));

@@ -3,6 +3,7 @@
 #include "../math/Vector3.hpp"
 #include "../math/Pose.hpp"
 #include "CollisionShape.hpp"
+#include "ContactManifold.hpp"
 #include <array>
 
 #include <initializer_list>
@@ -68,6 +69,33 @@ public:
  */
 class NarrowPhase {
 public:
+    /**
+     * @brief İki kutu arasında SAT ve Sutherland-Hodgman yüzey kırpma ile çok noktalı temas üretir.
+     */
+    static bool testBoxBox(const BoxShape& boxA, const Pose& transformA,
+                           const BoxShape& boxB, const Pose& transformB,
+                           ContactManifold& outManifold);
+
+    /**
+     * @brief Küre ile Kutu arasında kesin analitik çarpışma testi yapar.
+     */
+    static bool testSphereBox(const SphereShape& sphereA, const Pose& transformA,
+                             const BoxShape& boxB, const Pose& transformB,
+                             CollisionInfo& outInfo);
+
+    /**
+     * @brief İki küre arasında analitik ve kesin çarpışma testi yapar.
+     * @param sphereA Birinci küre şekli.
+     * @param transformA Birinci kürenin transformu.
+     * @param sphereB İkinci küre şekli.
+     * @param transformB İkinci kürenin transformu.
+     * @param[out] outInfo Çarpışma bilgileri.
+     * @return Çarpışma varsa true döner.
+     */
+    static bool testSphereSphere(const SphereShape& sphereA, const Pose& transformA,
+                                 const SphereShape& sphereB, const Pose& transformB,
+                                 CollisionInfo& outInfo);
+
     /**
      * @brief İki şeklin kesişip kesişmediğini GJK algoritması ile test eder.
      * @param shapeA Test edilecek birinci şekil.
