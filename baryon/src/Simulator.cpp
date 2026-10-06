@@ -1,32 +1,32 @@
 /**
  * @file Simulator.cpp
  * @brief Simulator sınıfının uygulama (implementation) dosyası.
- * @details Fizik simülasyonunun ana döngüsünü, varlık yönetimini ve 
+ * @details Fizik simülasyonunun ana döngüsünü, varlık yönetimini ve
  *          dünya sorgularını (raycast) koordine eden merkezi mantığı içerir.
  */
 
 #include "Baryon/Simulator.hpp"
-#include "Baryon/collision/NarrowPhase.hpp"
+
 #include "Baryon/Core/CoreComponents.hpp"
-#include <ranges>
+#include "Baryon/collision/NarrowPhase.hpp"
+
 #include <iostream>
+#include <ranges>
 
 namespace Baryon {
 
 /**
  * @brief Simulator kurucusu. Tüm fizik sistemlerini hiyerarşik sırayla başlatır.
- * @details Sistemler arasındaki bağımlılıklar nedeniyle başlatma sırası önemlidir: 
+ * @details Sistemler arasındaki bağımlılıklar nedeniyle başlatma sırası önemlidir:
  *          Bellek yöneticisi ve kayıt defteri (Registry) tüm sistemlerin temelidir.
  */
-Simulator::Simulator()
-    : mRegistry(mMemoryManager),
-      mIntegrator(mRegistry),
-      mHierarchySystem(mRegistry),
-      mSpatialPartitioning(mRegistry, mMemoryManager),
-      mCollisionSystem(mRegistry, mSpatialPartitioning),
-      mSolver(mRegistry),
-      mIslandSystem(mRegistry)
-{
+Simulator::Simulator() : mRegistry(mMemoryManager),
+						 mIntegrator(mRegistry),
+						 mHierarchySystem(mRegistry),
+						 mSpatialPartitioning(mRegistry, mMemoryManager),
+						 mCollisionSystem(mRegistry, mSpatialPartitioning),
+						 mSolver(mRegistry),
+						 mIslandSystem(mRegistry) {
 }
 
 /**
@@ -43,53 +43,80 @@ Simulator::Simulator()
  * @param shape Cismin çarpışma geometrisi.
  * @return Oluşturulan cismi yönetmek için kullanılan Body nesnesi.
  */
-Body Simulator::createBody(const Pose& transform, const collision::CollisionShape& shape) {
-    ecs::Entity entity = mRegistry.createEntity();
+Body Simulator::createBody(const Pose &transform, const collision::CollisionShape &shape) {
+	ecs::Entity entity = mRegistry.createEntity();
 
-    mRegistry.addComponent(entity, transform);
-    mRegistry.addComponent(entity, ecs::ColliderData{shape});
-    
-    // Temel fizik bileşenlerinin ilk değerlerle atanması
-    mRegistry.addComponent(entity, Core::Motion{});
-    mRegistry.addComponent(entity, Core::MassProps{});
-    mRegistry.addComponent(entity, Core::Material{});
-    mRegistry.addComponent(entity, Core::BodyState{});
+	mRegistry.addComponent(entity, transform);
+	mRegistry.addComponent(entity, ecs::ColliderData{ shape });
 
-    // Performans için uzaysal bölümleme ağacına ekleme
-    mSpatialPartitioning.addEntityToTree(entity);
+	// Temel fizik bileşenlerinin ilk değerlerle atanması
+	mRegistry.addComponent(entity, Core::Motion{});
+	mRegistry.addComponent(entity, Core::MassProps{});
+	mRegistry.addComponent(entity, Core::Material{});
+	mRegistry.addComponent(entity, Core::BodyState{});
 
-    Body rb(entity, mRegistry);
+	// Performans için uzaysal bölümleme ağacına ekleme
+	mSpatialPartitioning.addEntityToTree(entity);
 
-    // Kütle ve eylemsizlik tensörü hesaplamaları (varsayılan: 1kg)
-    collision::AABB localAABB = shape.computeLocalAABB();
-    Vector3 size = localAABB.maxBounds - localAABB.minBounds;
-    (void)rb.setMass(1.0f);
-    
-    // Kutu yaklaşımı ile eylemsizlik tensörü oluşturma
-    Matrix3x3 I = Matrix3x3::identity();
-    I[0].x = (1.0f / 12.0f) * 1.0f * (size.y * size.y + size.z * size.z);
-    I[1].y = (1.0f / 12.0f) * 1.0f * (size.x * size.x + size.z * size.z);
-    I[2].z = (1.0f / 12.0f) * 1.0f * (size.x * size.x + size.y * size.y);
-    (void)rb.setLocalInertiaTensor(I);
+	Body rb(entity, mRegistry);
 
-    return rb;
+	// Kütle ve eylemsizlik tensörü hesaplamaları (varsayılan: 1kg)
+	(void)rb.setMass(1.0f);
+
+	Matrix3x3 I = Matrix3x3::identity();
+	std::visit([&](const auto &s) {
+		using T = std::decay_t<decltype(s)>;
+		if constexpr (std::is_same_v<T, collision::SphereShape>) {
+			float val = 0.4f * 1.0f * s.radius * s.radius;
+			I[0].x = val;
+			I[1].y = val;
+			I[2].z = val;
+		} else if constexpr (std::is_same_v<T, collision::BoxShape>) {
+			Vector3 size = s.halfExtents * 2.0f;
+			I[0].x = (1.0f / 12.0f) * 1.0f * (size.y * size.y + size.z * size.z);
+			I[1].y = (1.0f / 12.0f) * 1.0f * (size.x * size.x + size.z * size.z);
+			I[2].z = (1.0f / 12.0f) * 1.0f * (size.x * size.x + size.y * size.y);
+		} else if constexpr (std::is_same_v<T, collision::CapsuleShape>) {
+			float r = s.radius;
+			float h = s.height;
+			// Silindir + yarımküre yaklaşımı
+			float cylinderMass = (h / (h + (4.0f / 3.0f) * r));
+			float capMass = 1.0f - cylinderMass;
+			float ix = cylinderMass * ((1.0f / 12.0f) * h * h + (1.0f / 4.0f) * r * r) +
+					capMass * ((2.0f / 5.0f) * r * r + (1.0f / 2.0f) * h * r + (1.0f / 4.0f) * h * h);
+			float iy = (1.0f / 2.0f) * cylinderMass * r * r + (2.0f / 5.0f) * capMass * r * r;
+			I[0].x = ix;
+			I[1].y = iy;
+			I[2].z = ix;
+		} else {
+			collision::AABB localAABB = shape.computeLocalAABB();
+			Vector3 size = localAABB.maxBounds - localAABB.minBounds;
+			I[0].x = (1.0f / 12.0f) * 1.0f * (size.y * size.y + size.z * size.z);
+			I[1].y = (1.0f / 12.0f) * 1.0f * (size.x * size.x + size.z * size.z);
+			I[2].z = (1.0f / 12.0f) * 1.0f * (size.x * size.x + size.y * size.y);
+		}
+	},
+			shape.getVariant());
+	(void)rb.setLocalInertiaTensor(I);
+
+	return rb;
 }
 
 /**
  * @brief Bir cismi fizik dünyasından ve bellekten tamamen siler.
  * @param body Silinecek cisim.
  */
-void Simulator::destroyBody(Body& body) {
-    ecs::Entity entity = body.getEntity();
-    if (mRegistry.isAlive(entity)) {
-        mSpatialPartitioning.removeEntityFromTree(entity);
-        mRegistry.destroyEntity(entity);
-    }
+void Simulator::destroyBody(Body &body) {
+	ecs::Entity entity = body.getEntity();
+	if (mRegistry.isAlive(entity)) {
+		mSpatialPartitioning.removeEntityFromTree(entity);
+		mRegistry.destroyEntity(entity);
+	}
 }
 
 /**
  * @brief Fizik simülasyonunu ana döngü içerisinde ilerletir.
- * @details Sabit zaman adımı (fixed timestep) ve biriktirici (accumulator) mantığı kullanılır. 
+ * @details Sabit zaman adımı (fixed timestep) ve biriktirici (accumulator) mantığı kullanılır.
  *          Bu sayede FPS dalgalanmalarından bağımsız, deterministik bir fizik dünyası sağlanır.
  *
  * Fiziksel İşlem Akışı:
@@ -103,70 +130,77 @@ void Simulator::destroyBody(Body& body) {
  * 8. Hiyerarşi Güncellemesi.
  */
 void Simulator::step(float deltaTime) {
-    if (deltaTime <= 0.0f) return;
+	if (deltaTime <= 0.0f) {
+		return;
+	}
 
-    mAccumulator += deltaTime;
+	mAccumulator += deltaTime;
 
-    // Ölüm Spirali (Spiral of Death) Koruması: Bilgisayar çok yavaşlarsa 
-    // simülasyonun sonsuz döngüye girmesini engellemek için adımları sınırlar.
-    if (mAccumulator > 0.1f) {
-        mAccumulator = 0.1f;
-    }
+	// Ölüm Spirali (Spiral of Death) Koruması:
+	// Tek bir karede en fazla 2 alt adım çalıştırılır. Aşırı gecikmeler birikip sonraki kareleri kitlemez.
+	int maxSubSteps = 2;
+	while (mAccumulator >= mFixedTimeStep && maxSubSteps > 0) {
+		float dt = mFixedTimeStep;
+		maxSubSteps--;
 
-    while (mAccumulator >= mFixedTimeStep) {
-        float dt = mFixedTimeStep;
+		// 1. Dinamik kuvvetleri hıza aktar
+		mIntegrator.integrateVelocities(dt);
 
-        // 1. Dinamik kuvvetleri hıza aktar
-        mIntegrator.integrateVelocities(dt);
+		// 1b. Hızlı hareket eden nesneler için sürekli çarpışma kontrolü
+		{
+			auto &statePool = mRegistry.getComponentPool<Core::BodyState>();
+			auto &states = statePool.getAllData();
+			auto &entities = statePool.getAllEntities();
+			for (auto &&[entity, state] : std::views::zip(entities, states)) {
+				if (state.type != Core::BodyType::Dynamic || !state.useCCD || state.isSleeping) {
+					continue;
+				}
+				mCollisionSystem.applyCCD(entity, dt);
+			}
+		}
 
-        // 1b. Hızlı hareket eden nesneler için sürekli çarpışma kontrolü
-        {
-            auto& statePool = mRegistry.getComponentPool<Core::BodyState>();
-            auto& states = statePool.getAllData();
-            auto& entities = statePool.getAllEntities();
-            for (auto&& [entity, state] : std::views::zip(entities, states)) {
-                if (state.type != Core::BodyType::Dynamic || !state.useCCD || state.isSleeping) continue;
-                mCollisionSystem.applyCCD(entity, dt);
-            }
-        }
+		// 2. Sınır kutularını (AABB) güncelle ve adayları filtrele
+		mSpatialPartitioning.step();
 
-        // 2. Sınır kutularını (AABB) güncelle ve adayları filtrele
-        mSpatialPartitioning.step();
+		// 3. Kesin çarpışma testlerini yap ve temas noktalarını üret
+		mCollisionSystem.step();
 
-        // 3. Kesin çarpışma testlerini yap ve temas noktalarını üret
-        mCollisionSystem.step();
+		// 4. Etkileşim halindeki nesne gruplarını ayır
+		auto islands = mIslandSystem.step(mCollisionSystem.getManifolds(), dt);
 
-        // 4. Etkileşim halindeki nesne gruplarını ayır
-        auto islands = mIslandSystem.step(mCollisionSystem.getManifolds(), dt);
+		// 5. Her nesne grubu için fiziksel tepkileri hesapla (10 hız, 4 pozisyon iterasyonu ideal dengedir)
+		for (const auto &island : islands) {
+			mSolver.execute(island, mCollisionSystem.getManifolds(), dt, 10, 4);
+		}
 
-        // 5. Her nesne grubu için fiziksel tepkileri hesapla (12 iterasyon kararlılık için idealdir)
-        for (const auto& island : islands) {
-            mSolver.execute(island, mCollisionSystem.getManifolds(), dt, 12, 8);
-        }
+		// 6. Güncellenmiş hızları kullanarak konumları değiştir
+		mIntegrator.integratePositions(dt);
 
-        // 6. Güncellenmiş hızları kullanarak konumları değiştir
-        mIntegrator.integratePositions(dt);
+		// 7. Bağlı nesne hiyerarşilerini (ebeveyn-çocuk) uyarla
+		mHierarchySystem.step();
 
-        // 7. Bağlı nesne hiyerarşilerini (ebeveyn-çocuk) uyarla
-        mHierarchySystem.step();
+		// 8. O kareye özel kullanılan geçici bellek alanlarını temizle
+		mMemoryManager.resetSingleFrameAllocator();
 
-        // 8. O kareye özel kullanılan geçici bellek alanlarını temizle
-        mMemoryManager.resetSingleFrameAllocator();
+		mAccumulator -= mFixedTimeStep;
+	}
 
-        mAccumulator -= mFixedTimeStep;
-    }
+	// Eğer kare çok uzadıysa birikintiyi sıfırla (gecikme zincirleme devam etmesin)
+	if (maxSubSteps == 0) {
+		mAccumulator = 0.0f;
+	}
 }
 
 /**
  * @brief Sahne genelindeki yerçekimi veya benzeri ivme alanını ayarlar.
  */
-void Simulator::setAccelerationField(const Vector3& accelerationField) {
-    mIntegrator.setAccelerationField(accelerationField);
+void Simulator::setAccelerationField(const Vector3 &accelerationField) {
+	mIntegrator.setAccelerationField(accelerationField);
 }
 
 /**
  * @brief Dünya üzerinde ışın fırlatarak en yakın objeyi tespit eder.
- * @details Performans için önce AABB ağacıyla kaba bir eleme yapılır, 
+ * @details Performans için önce AABB ağacıyla kaba bir eleme yapılır,
  *          ardından adaylar üzerinde hassas geometrik test uygulanır.
  *
  * @param origin Işın başlangıç noktası.
@@ -174,61 +208,65 @@ void Simulator::setAccelerationField(const Vector3& accelerationField) {
  * @param maxDist Maksimum menzil.
  * @return Çarpışma detaylarını içeren RaycastHit yapısı.
  */
-collision::RaycastHit Simulator::raycast(const Vector3& origin, const Vector3& direction, float maxDist) {
-    collision::RaycastHit closestHit;
-    closestHit.hasHit = false;
-    closestHit.distance = maxDist;
+collision::RaycastHit Simulator::raycast(const Vector3 &origin, const Vector3 &direction, float maxDist) {
+	collision::RaycastHit closestHit;
+	closestHit.hasHit = false;
+	closestHit.distance = maxDist;
 
-    collision::Ray ray(origin, direction, maxDist);
-    
-    mSpatialPartitioning.getTree().query(ray.computeAABB(), [&](ecs::Entity obstacle) {
-        if (!mRegistry.hasComponent<Pose>(obstacle) || !mRegistry.hasComponent<ecs::ColliderData>(obstacle)) return;
+	collision::Ray ray(origin, direction, maxDist);
 
-        const auto& obsTrans = mRegistry.getComponent<Pose>(obstacle);
-        const auto& obsColl = mRegistry.getComponent<ecs::ColliderData>(obstacle);
+	mSpatialPartitioning.getTree().query(ray.computeAABB(), [&](ecs::Entity obstacle) {
+		if (!mRegistry.hasComponent<Pose>(obstacle) || !mRegistry.hasComponent<ecs::ColliderData>(obstacle)) {
+			return;
+		}
 
-        collision::RaycastHit hit;
-        if (collision::NarrowPhase::raycast(obsColl.shape, obsTrans, ray, hit)) {
-            if (hit.distance < closestHit.distance) {
-                closestHit = hit;
-                closestHit.entity = obstacle;
-            }
-        }
-    });
+		const auto &obsTrans = mRegistry.getComponent<Pose>(obstacle);
+		const auto &obsColl = mRegistry.getComponent<ecs::ColliderData>(obstacle);
 
-    return closestHit;
+		collision::RaycastHit hit;
+		if (collision::NarrowPhase::raycast(obsColl.shape, obsTrans, ray, hit)) {
+			if (hit.distance < closestHit.distance) {
+				closestHit = hit;
+				closestHit.entity = obstacle;
+			}
+		}
+	});
+
+	return closestHit;
 }
 
 /**
  * @brief Belirli bir nesneye ait tüm aktif temas noktalarını listeler.
  */
 std::vector<collision::ContactManifold> Simulator::getContactsForEntity(ecs::Entity entity) const {
-    std::vector<collision::ContactManifold> result;
-    const auto& manifolds = mCollisionSystem.getManifolds();
-    for (const auto& [key, manifold] : manifolds) {
-        if (manifold.entityA.id == entity.id || manifold.entityB.id == entity.id) {
-            result.push_back(manifold);
-        }
-    }
-    return result;
+	std::vector<collision::ContactManifold> result;
+	const auto &manifolds = mCollisionSystem.getManifolds();
+	for (const auto &[key, manifold] : manifolds) {
+		if (manifold.entityA.id == entity.id || manifold.entityB.id == entity.id) {
+			result.push_back(manifold);
+		}
+	}
+	return result;
 }
 
 void Simulator::printAABBs() {
-    std::cout << "\n--- Baryon Physics AABB Dump ---\n";
-    const auto& colliderPool = mRegistry.getComponentPool<ecs::ColliderData>();
-    const auto& entities = colliderPool.getAllEntities();
-    for (auto entity : entities) {
-        if (!mRegistry.hasComponent<Pose>(entity)) continue;
-        const auto& collider = mRegistry.getComponent<ecs::ColliderData>(entity);
-        const auto& pose = mRegistry.getComponent<Pose>(entity);
-        
-        collision::AABB localAABB = collider.shape.computeLocalAABB();
-        Vector3 extents = (localAABB.maxBounds - localAABB.minBounds) * 0.5f;
-        
-        std::cout << "Entity " << entity.id << " Pos: [" << pose.position.x << ", " << pose.position.y << ", " << pose.position.z << "] "
-                  << "Local AABB Extents: [" << extents.x << ", " << extents.y << ", " << extents.z << "]\n";
-    }
-    std::cout << "--------------------------------\n";
+	std::cout << "\n--- Baryon Physics AABB Dump ---\n";
+	const auto &colliderPool = mRegistry.getComponentPool<ecs::ColliderData>();
+	const auto &entities = colliderPool.getAllEntities();
+	for (auto entity : entities) {
+		if (!mRegistry.hasComponent<Pose>(entity)) {
+			continue;
+		}
+		const auto &collider = mRegistry.getComponent<ecs::ColliderData>(entity);
+		const auto &pose = mRegistry.getComponent<Pose>(entity);
+
+		collision::AABB localAABB = collider.shape.computeLocalAABB();
+		Vector3 extents = (localAABB.maxBounds - localAABB.minBounds) * 0.5f;
+
+		std::cout << "Entity " << entity.id << " Pos: [" << pose.position.x << ", " << pose.position.y << ", " << pose.position.z << "] "
+				  << "Local AABB Extents: [" << extents.x << ", " << extents.y << ", " << extents.z << "]\n";
+	}
+	std::cout << "--------------------------------\n";
 }
 
 } // namespace Baryon

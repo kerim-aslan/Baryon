@@ -47,29 +47,21 @@ void Integrator::integrateVelocities(float deltaTime) {
         if (state.type != Core::BodyType::Dynamic || state.isSleeping) continue;
 
         // --- Doğrusal Hız Entegrasyonu ---
-        // Sönümleme (Hava direnci)
-        float linearDamping = 0.01f; 
-        motion.linearVelocity *= (1.0f - linearDamping * deltaTime);
+        // Sönümleme (Padé yaklaşımı ile hava direnci)
+        float linDampFactor = 1.0f / (1.0f + motion.linearDamping * deltaTime);
+        motion.linearVelocity *= linDampFactor;
 
         // İvme hesaplama: a = F/m + g
         Vector3 linearAcceleration = mAccelerationField + (motion.externalForce * mass.inverseMass);
         motion.linearVelocity += linearAcceleration * deltaTime;
 
         // --- Açısal Hız Entegrasyonu ---
-        float angularDamping = 1.0f; 
-        motion.angularVelocity *= (1.0f - angularDamping * deltaTime);
+        float angDampFactor = 1.0f / (1.0f + motion.angularDamping * deltaTime);
+        motion.angularVelocity *= angDampFactor;
 
         // Açısal İvme: α = I⁻¹τ
         Vector3 angularAcceleration = mass.inverseInertiaTensor * motion.externalTorque;
         motion.angularVelocity += angularAcceleration * deltaTime;
-
-        // --- Hız Eşiği (Jitter Önleme) ---
-        if (motion.linearVelocity.lengthSquare() < physics::PhysicsConstants::VelocityDeadZoneSq) {
-            motion.linearVelocity = Vector3(0.0f, 0.0f, 0.0f);
-        }
-        if (motion.angularVelocity.lengthSquare() < physics::PhysicsConstants::VelocityDeadZoneSq) {
-            motion.angularVelocity = Vector3(0.0f, 0.0f, 0.0f);
-        }
 
         // Kuvvetleri sıfırla (Her karede kullanıcı tarafından yeniden uygulanmalıdır)
         motion.externalForce = Vector3(0.0f, 0.0f, 0.0f);
@@ -79,12 +71,13 @@ void Integrator::integrateVelocities(float deltaTime) {
 
 /**
  * @brief 2. AŞAMA: Konum ve Rotasyon Entegrasyonu (Çözücü sonrası çalışır).
- * @details Güncel hız değerlerini kullanarak cismin uzaydaki yerini belirler:
+ * @details Güncel hız ve Split Impulse değerlerini kullanarak cismin uzaydaki yerini belirler:
  *
- *          1. Konum Güncelleme: Mevcut pozisyona hız vektörü eklenir.
- *          2. Rotasyon Güncelleme: Açısal hıza bağlı olarak kuaterniyon türevi alınır.
+ *          1. Konum Güncelleme: Mevcut pozisyona (v + v_split) eklenir.
+ *          2. Rotasyon Güncelleme: (w + w_split) açısal hızına bağlı olarak kuaterniyon türevi entegre edilir.
  *          3. Normalizasyon: Sayısal hataların birikmesini önlemek için yönelim normalize edilir.
- *          4. Dünya Eylemsizliği: Cismin dönüşüne bağlı olarak eylemsizlik tensörü dünya uzayına uyarlanır.
+ *          4. Split Hızları Sıfırlama: Ayrık itmeler gerçek kinetik hızı kirletmez.
+ *          5. Dünya Eylemsizliği: Cismin dönüşüne bağlı olarak önceden hesaplanan I_local⁻¹ dünya uzayına uyarlanır.
  *
  * @param deltaTime Zaman adımı (saniye).
  */
@@ -102,14 +95,16 @@ void Integrator::integratePositions(float deltaTime) {
         auto& pose = mRegistry.getComponent<Pose>(entity);
         auto& mass = mRegistry.getComponent<Core::MassProps>(entity);
 
-        // Doğrusal Hareket: p = p + v·dt
-        pose.position += motion.linearVelocity * deltaTime;
+        // Doğrusal Hareket: p = p + (v + v_split)·dt
+        Vector3 effectiveLinVel = motion.linearVelocity + motion.splitLinearVelocity;
+        pose.position += effectiveLinVel * deltaTime;
 
         // Açısal Hareket (Kuaterniyon türevi entegrasyonu)
+        Vector3 effectiveAngVel = motion.angularVelocity + motion.splitAngularVelocity;
         Quaternion spin(
-            motion.angularVelocity.x,
-            motion.angularVelocity.y,
-            motion.angularVelocity.z,
+            effectiveAngVel.x,
+            effectiveAngVel.y,
+            effectiveAngVel.z,
             0.0f
         );
         Quaternion qDot = spin * pose.orientation;
@@ -121,10 +116,13 @@ void Integrator::integratePositions(float deltaTime) {
         // Sayısal kararlılık için normalizasyon şarttır
         pose.orientation.normalize();
 
+        // Split hızları sıfırla (sadece bu karedeki geometrik ayrılma içindi)
+        motion.splitLinearVelocity = Vector3(0.0f, 0.0f, 0.0f);
+        motion.splitAngularVelocity = Vector3(0.0f, 0.0f, 0.0f);
+
         // Dünya Uzayı Eylemsizliği: I_world⁻¹ = R · I_local⁻¹ · Rᵀ
-        
         Matrix3x3 R = pose.getOrientationMatrix();
-        mass.inverseInertiaTensor = R * mass.localInertiaTensor.getInverse() * R.getTranspose();
+        mass.inverseInertiaTensor = R * mass.inverseLocalInertiaTensor * R.getTranspose();
     }
 }
 

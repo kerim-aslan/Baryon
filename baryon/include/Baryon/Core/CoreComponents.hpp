@@ -31,6 +31,12 @@ enum class BodyType {
 struct Motion {
     Vector3 linearVelocity{0.0f, 0.0f, 0.0f};   ///< Cismin doğrusal hızı (m/s).
     Vector3 angularVelocity{0.0f, 0.0f, 0.0f};  ///< Cismin dönme (açısal) hızı (rad/s).
+
+    Vector3 splitLinearVelocity{0.0f, 0.0f, 0.0f};  ///< Split impulse çizgisel hız (yalnızca konum entegrasyonu için).
+    Vector3 splitAngularVelocity{0.0f, 0.0f, 0.0f}; ///< Split impulse açısal hız (yalnızca yönelim entegrasyonu için).
+
+    float linearDamping{0.05f};                    ///< Doğrusal hava direnci sönümleme katsayısı.
+    float angularDamping{0.05f};                   ///< Açısal hava direnci sönümleme katsayısı.
     
     Vector3 externalForce{0.0f, 0.0f, 0.0f};    ///< Bu karede cisme uygulanan toplam itme kuvveti (Newton).
     Vector3 externalTorque{0.0f, 0.0f, 0.0f};   ///< Bu karede cisme uygulanan toplam dönme kuvveti (N·m).
@@ -46,8 +52,9 @@ struct MassProps {
     float mass{1.0f};          ///< Cismin toplam kütlesi (kg).
     float inverseMass{1.0f};   ///< Ters kütle (1 / kütle). İşlem optimizasyonu için saklanır.
 
-    Matrix3x3 localInertiaTensor{Matrix3x3::identity()};   ///< Cismin kendi yerel eksenlerindeki dönme direnci.
-    Matrix3x3 inverseInertiaTensor{Matrix3x3::identity()}; ///< Cismin dünya uzayındaki döndürülmüş ters eylemsizlik tensörü.
+    Matrix3x3 localInertiaTensor{Matrix3x3::identity()};        ///< Cismin kendi yerel eksenlerindeki dönme direnci.
+    Matrix3x3 inverseLocalInertiaTensor{Matrix3x3::identity()}; ///< Cismin yerel ters eylemsizlik matrisi (önceden hesaplanır).
+    Matrix3x3 inverseInertiaTensor{Matrix3x3::identity()};      ///< Cismin dünya uzayındaki döndürülmüş ters eylemsizlik tensörü.
 };
 
 /**

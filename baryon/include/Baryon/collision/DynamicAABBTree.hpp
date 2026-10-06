@@ -99,24 +99,22 @@ public:
     void query(const AABB& targetAABB, F&& callback) const {
         if (mRootIndex == NULL_NODE) return;
         
-        std::pmr::vector<int32_t> stack(mNodes.get_allocator());
-        stack.reserve(64); // Çoğu ağaç derinliği için yeterli tahsis
-        stack.push_back(mRootIndex);
+        int32_t stack[256];
+        int32_t stackTop = 0;
+        stack[stackTop++] = mRootIndex;
         
-        while (!stack.empty()) {
-            int32_t nodeIndex = stack.back();
-            stack.pop_back();
-            
+        while (stackTop > 0) {
+            int32_t nodeIndex = stack[--stackTop];
             const auto& node = mNodes[nodeIndex];
             
-            // Eğer düğüm hedef bölge ile kesişmiyorsa o dalı tamamen atla (optimizasyon)
             if (node.aabb.testCollision(targetAABB)) {
                 if (node.isLeaf()) {
-                    callback(node.entity); // Yaprak ise varlığı döndür
+                    callback(node.entity);
                 } else {
-                    // İç düğüm ise alt çocukları yığına (stack) ekle ve devam et
-                    stack.push_back(node.leftChildIndex);
-                    stack.push_back(node.rightChildIndex);
+                    if (stackTop + 2 < 256) {
+                        stack[stackTop++] = node.leftChildIndex;
+                        stack[stackTop++] = node.rightChildIndex;
+                    }
                 }
             }
         }

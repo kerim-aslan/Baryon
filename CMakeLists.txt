@@ -12,24 +12,20 @@ if(NOT WIN32)
   add_link_options($<$<CONFIG:Debug>:-fsanitize=address,leak,undefined>)
 endif()
 
-# Thirdparty
-file(GLOB childs RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty" "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/*")
-foreach(child ${childs})
-  if(
-    IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${child}" AND
-    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${child}/CMakeLists.txt"
-  )
-
-    message(STATUS "Depency Project Added: ${child}")
-    
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/${child}")
-      
-  endif()
-endforeach()
-
-
-# 2. Baryon
+# 1. Baryon Core (Saf C++23 fizik motoru - Sıfır dış bağımlılık)
 add_subdirectory(baryon)
 
-# 3. Sandbox
-add_subdirectory(sandbox)
+# 2. İsteğe bağlı Godot GDExtension eklentisi (Klasör varsa ve açıksa derlenir)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/gdextension")
+    option(BARYON_BUILD_GDEXTENSION "Build Godot GDExtension bindings" OFF)
+    if(BARYON_BUILD_GDEXTENSION)
+        include(FetchContent)
+        FetchContent_Declare(
+            godot-cpp
+            GIT_REPOSITORY https://github.com/godotengine/godot-cpp.git
+            GIT_TAG godot-4.2.2-stable
+        )
+        FetchContent_MakeAvailable(godot-cpp)
+        add_subdirectory(gdextension)
+    endif()
+endif()
