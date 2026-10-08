@@ -1,3 +1,21 @@
+/*
+ * Baryon - A custom physics engine
+ * Copyright (C) 2026 Kerim Aslan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file NarrowPhase.cpp
  * @brief Dar Faz (Narrow Phase) çarpışma algılama algoritmaları.
@@ -597,6 +615,136 @@ bool NarrowPhase::raycast(const CollisionShape &shape, const Pose &transform,
           hit.position = ray.origin + ray.direction * tmin;
           hit.normal = (transform.orientation * normal).getNormalized();
           return true;
+        } else if constexpr (std::is_same_v<T, CapsuleShape>) {
+          Vector3 p = transform.getInverse() * ray.origin;
+          Vector3 d = transform.orientation.getInverse() * ray.direction;
+          float halfH = s.height * 0.5f;
+          float radius = s.radius;
+
+          float closestT = ray.maxDistance + 1.0f;
+          Vector3 localHitNorm(0, 1, 0);
+          bool hitAny = false;
+
+          float a = d.x * d.x + d.z * d.z;
+          float b = p.x * d.x + p.z * d.z;
+          float c = p.x * p.x + p.z * p.z - radius * radius;
+          if (a > 1e-7f) {
+            float discr = b * b - a * c;
+            if (discr >= 0.0f) {
+              float sqrtD = std::sqrt(discr);
+              float t0 = (-b - sqrtD) / a;
+              float t1 = (-b + sqrtD) / a;
+              for (float tCandidate : {t0, t1}) {
+                if (tCandidate > 0.0f && tCandidate <= ray.maxDistance) {
+                  float yAtHit = p.y + d.y * tCandidate;
+                  if (yAtHit >= -halfH && yAtHit <= halfH) {
+                    if (tCandidate < closestT) {
+                      closestT = tCandidate;
+                      localHitNorm = Vector3(p.x + d.x * tCandidate, 0.0f, p.z + d.z * tCandidate).getNormalized();
+                      hitAny = true;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          for (float capY : {halfH, -halfH}) {
+            Vector3 center(0.0f, capY, 0.0f);
+            Vector3 m = p - center;
+            float bSphere = m.dot(d);
+            float cSphere = m.dot(m) - radius * radius;
+            float discrSphere = bSphere * bSphere - cSphere;
+            if (discrSphere >= 0.0f) {
+              float tSphere = -bSphere - std::sqrt(discrSphere);
+              if (tSphere > 0.0f && tSphere <= ray.maxDistance) {
+                Vector3 hitP = p + d * tSphere;
+                if ((capY > 0.0f && hitP.y >= halfH) || (capY < 0.0f && hitP.y <= -halfH)) {
+                  if (tSphere < closestT) {
+                    closestT = tSphere;
+                    localHitNorm = (hitP - center).getNormalized();
+                    hitAny = true;
+                  }
+                }
+              }
+            }
+          }
+
+          if (hitAny && closestT <= ray.maxDistance) {
+            hit.hasHit = true;
+            hit.distance = closestT;
+            hit.position = ray.origin + ray.direction * closestT;
+            hit.normal = (transform.orientation * localHitNorm).getNormalized();
+            return true;
+          }
+          return false;
+        } else if constexpr (std::is_same_v<T, TriangleShape>) {
+          Vector3 v0 = transform.position + (transform.orientation * s.v0);
+          Vector3 v1 = transform.position + (transform.orientation * s.v1);
+          Vector3 v2 = transform.position + (transform.orientation * s.v2);
+          Vector3 edge1 = v1 - v0;
+          Vector3 edge2 = v2 - v0;
+          Vector3 h = ray.direction.cross(edge2);
+          float a = edge1.dot(h);
+          if (std::abs(a) < 1e-7f) return false;
+          float f = 1.0f / a;
+          Vector3 sVec = ray.origin - v0;
+          float u = f * sVec.dot(h);
+          if (u < 0.0f || u > 1.0f) return false;
+          Vector3 q = sVec.cross(edge1);
+          float v = f * ray.direction.dot(q);
+          if (v < 0.0f || u + v > 1.0f) return false;
+          float t = f * edge2.dot(q);
+          if (t > 1e-4f && t <= ray.maxDistance) {
+            hit.hasHit = true;
+            hit.distance = t;
+            hit.position = ray.origin + ray.direction * t;
+            hit.normal = edge1.cross(edge2).getNormalized();
+            if (hit.normal.dot(ray.direction) > 0.0f) hit.normal = -hit.normal;
+            return true;
+          }
+          return false;
+        } else if constexpr (std::is_same_v<T, StaticMeshShape>) {
+          if (!s.mesh) return false;
+          if (!s.mesh->getBounds().testCollision(ray.computeAABB())) return false;
+
+          bool hitAny = false;
+          float closestT = ray.maxDistance;
+          Vector3 hitNorm(0, 1, 0);
+
+          s.mesh->queryTriangles(ray.computeAABB(), [&](const TriangleShape &tri) {
+            Vector3 v0 = transform.position + (transform.orientation * tri.v0);
+            Vector3 v1 = transform.position + (transform.orientation * tri.v1);
+            Vector3 v2 = transform.position + (transform.orientation * tri.v2);
+            Vector3 edge1 = v1 - v0;
+            Vector3 edge2 = v2 - v0;
+            Vector3 h = ray.direction.cross(edge2);
+            float a = edge1.dot(h);
+            if (std::abs(a) < 1e-7f) return;
+            float f = 1.0f / a;
+            Vector3 sVec = ray.origin - v0;
+            float u = f * sVec.dot(h);
+            if (u < 0.0f || u > 1.0f) return;
+            Vector3 q = sVec.cross(edge1);
+            float v = f * ray.direction.dot(q);
+            if (v < 0.0f || u + v > 1.0f) return;
+            float t = f * edge2.dot(q);
+            if (t > 1e-4f && t < closestT) {
+              closestT = t;
+              hitNorm = edge1.cross(edge2).getNormalized();
+              if (hitNorm.dot(ray.direction) > 0.0f) hitNorm = -hitNorm;
+              hitAny = true;
+            }
+          });
+
+          if (hitAny) {
+            hit.hasHit = true;
+            hit.distance = closestT;
+            hit.position = ray.origin + ray.direction * closestT;
+            hit.normal = hitNorm;
+            return true;
+          }
+          return false;
         }
         return false;
       },

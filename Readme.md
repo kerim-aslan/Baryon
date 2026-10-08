@@ -1,31 +1,131 @@
 # Baryon Physics Engine
 
-> **Not:** Bu fizik motoru, modern C++ (C++23) ve oyun fiziği mimarilerini keşfetmek amacıyla **yapay zeka (AI) asistanları yardımıyla geliştirilmiş kişisel bir hobi projesidir.** 
+> **Not:** Bu fizik motoru, modern C++ (C++23) ve oyun fiziği mimarilerini keşfetmek amacıyla **yapay zeka (AI) asistanları yardımıyla geliştirilmiş kişisel bir hobi projesidir.**
 
-Baryon, yüksek performanslı, veri odaklı (Data-Oriented) ve C++23 standartlarını temel alan bir 3D fizik simülasyon motorudur. Modern ECS (Entity Component System) mimarisi üzerine inşa edilmiş olup, düşük seviyeli bellek optimizasyonları ve gelişmiş çarpışma algılama algoritmaları sunar.
+Baryon, herhangi bir dış kütüphaneye bağımlılığı olmayan, saf C++23 ile yazılmış, hafif ve veri odaklı (ECS) bir 3D fizik simülasyon motorudur.
 
-## Temel Özellikler
+---
 
-### 1. Fizik ve Simülasyon Çekirdeği
+## 📋 Gereksinimler
 
-- **Sayısal Entegrasyon**: Simülasyon kararlılığını artırmak için "Semi-implicit Euler" yöntemi kullanılmıştır.
-- **Ardışık İtme Çözücüsü (Sequential Impulses)**: Çarpışmaları ve eklem kısıtlamalarını iteratif olarak çözen, yüksek kararlılığa sahip hız tabanlı çözücü.
-- **Ada Sistemi ve Uyku (Islands & Sleep)**: Birbiriyle etkileşim halindeki nesneleri dinamik olarak gruplandırır ve enerjisi tükenen nesneleri "uyku" moduna alarak CPU kullanımını optimize eder.
-- **Kısıtlamalar (Constraints)**: Mesafe (Distance) ve Menteşe (Revolute) kısıtlamaları ile karmaşık mekanizmaların inşasına olanak tanır.
+Projenin derlenebilmesi için sisteminizde aşağıdaki araçların bulunması gerekir:
 
-### 2. Çarpışma Algılama Sistemi
+- **Derleyici**: C++23 standardını tam destekleyen bir derleyici:
+  - MSVC (Visual Studio 2022 v17.8+)
+  - GCC 13+
+  - Clang 16+
+- **CMake**: Sürüm 3.20 veya üzeri
+- **Git**
 
-- **Geniş Faz (Broad Phase)**: Dinamik AABB Ağacı (Dynamic BVH) yapısı sayesinde binlerce nesne arasında hızlı filtreleme ve sorgulama (Raycast, AABB Query) sağlar.
-- **Dar Faz (Narrow Phase)**: GJK (Gilbert-Johnson-Keerthi) ve EPA (Expansion Polytope Algorithm) algoritmaları ile kesin kesişim tespiti, ayırma normali ve penetrasyon derinliği hesaplaması.
-- **Sürekli Çarpışma Algılama (CCD)**: Hızlı hareket eden mermi benzeri objelerin ince yüzeylerden "tünelleme" yaparak geçmesini engelleyen "Time of Impact" (TOI) hesaplaması.
-- **Zengin Geometri Desteği**: Küre, Kutu, Kapsül, Dışbükey Örtü (Convex Hull) ve karmaşık Statik Üçgen Ağları (Static Mesh).
+---
 
-### 3. Modern ECS ve Bellek Mimarisi
+## 🛠️ Kurulum ve Derleme
 
-- **SparseSet Veri Yapısı**: ECS bileşenlerini bellekte ardışık ve boşluksuz tutarak Cache-Miss oranlarını minimize eder.
-- **PMR (Polymorphic Memory Resources)**: Uzun ömürlü veriler için Pool, geçici hesaplamalar için Monotonic bellek havuzları kullanarak çalışma zamanı tahsis maliyetlerini minimize eder.
-- **Snapshot Sistemi**: Tüm simülasyon dünyasının durumunu kaydedip geri yükleme desteği ile Rewind ve Replay özelliklerine olanak sağlar.
+### 1. Depoyu Klonlayın
+```bash
+git clone https://github.com/kerim-aslan/Baryon.git
+cd Baryon
+```
 
-## Lisans
+### 2. CMake ile Projeyi Yapılandırın
+```bash
+cmake -B build
+```
 
-Bu projenin hakları **GPL lisansı** altındadır.
+> **İpucu:** Görsel Hata Ayıklayıcıyı (Visual Debugger) derlemek istemiyorsanız, sadece çekirdek motoru derlemek için:
+> ```bash
+> cmake -B build -DBARYON_BUILD_DEBUGGER=OFF
+> ```
+
+### 3. Derleyin
+```bash
+# Release modunda derleme (Tavsiye edilen):
+cmake --build build --config Release
+
+# Veya Debug modunda derleme:
+cmake --build build --config Debug
+```
+
+---
+
+## 🎮 Çalıştırma ve Testler
+
+### 1. Görsel Teşhis Aracı (Visual Debugger & Testbed)
+Simülasyon dünyasını, çarpışma gövdelerini, temas noktalarını ve anomali tahminlerini 3D arayüz üzerinden gerçek zamanlı test etmek için:
+
+```bash
+# Windows:
+.\build\tools\debugger\Release\BaryonVisualDebugger.exe
+
+# veya tekil yapılandırma çıktısında:
+.\build\tools\debugger\BaryonVisualDebugger.exe
+```
+
+### 2. Otomatik Doğrulama Testleri
+Motorun kararlılığını ve tünelleme (CCD) davranışlarını test etmek için:
+
+```bash
+# Tünelleme ve yüksek hız çarpışma (CCD) testleri:
+.\build\tests\Release\TunnelingTest.exe
+
+# Kapsamlı özellik ve entegrasyon testleri:
+.\build\tests\Release\FeatureVerificationTest.exe
+```
+
+---
+
+## 🔌 Kendi Projenize Dahil Etme (CMake)
+
+Baryon Core sıfır dış bağımlılığa sahip olduğu için projenize eklemek oldukça basittir:
+
+1. `baryon/` klasörünü projenizin `thirdparty/` veya kök dizinine ekleyin.
+2. Kendi `CMakeLists.txt` dosyanıza şu satırları ekleyin:
+
+```cmake
+add_subdirectory(baryon)
+
+# Kendi hedefinize bağlayın (Include yolları otomatik eklenir)
+target_link_libraries(KendiOyununuz PRIVATE Baryon::Baryon)
+```
+
+### Minimal Kod Örneği
+
+```cpp
+#include <Baryon/Simulator.hpp>
+#include <iostream>
+
+int main() {
+    // 1. Simülasyon dünyasını oluştur
+    Baryon::Simulator sim;
+    sim.setAccelerationField(Baryon::Vector3(0.0f, -9.81f, 0.0f)); // Yerçekimi
+
+    // 2. Dinamik bir küre gövdesi ekle
+    Baryon::Pose pose;
+    pose.position = Baryon::Vector3(0.0f, 10.0f, 0.0f);
+    Baryon::Body sphere = sim.createBody(pose, Baryon::collision::CollisionShape(Baryon::collision::SphereShape(1.0f)));
+    sphere.setBodyType(Baryon::Core::BodyType::Dynamic);
+
+    // 3. Simülasyonu adımla
+    for (int i = 0; i < 60; ++i) {
+        sim.step(1.0f / 60.0f);
+        std::cout << "Küre Yüksekliği: " << sphere.getPosition().y << " m\n";
+    }
+
+    return 0;
+}
+```
+
+---
+
+## 📁 Dizin Yapısı
+
+- **`baryon/`**: Sıfır dış bağımlılığa sahip saf C++23 fizik motoru çekirdeği.
+- **`debugger/`**: OpenGL & ImGui tabanlı 3D görsel hata ayıklama ve teşhis aracı.
+- **`tests/`**: Otomatik CCD, tünelleme ve motor kabiliyet doğrulama testleri.
+- **`Asset/`**: Testlerde kullanılan 3D modeller ve mesh varlıkları.
+
+---
+
+## 📜 Lisans
+
+Bu proje **GNU General Public License v3.0 (GPLv3)** ile lisanslanmıştır. Detaylar için [LICENCE](LICENCE) dosyasına bakabilirsiniz.

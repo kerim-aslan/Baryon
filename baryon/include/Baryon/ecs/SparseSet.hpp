@@ -1,3 +1,21 @@
+/*
+ * Baryon - A custom physics engine
+ * Copyright (C) 2026 Kerim Aslan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 
 #include "../memory/MemoryManager.hpp"
@@ -30,8 +48,8 @@ private:
   std::pmr::vector<T> mData; ///< Gerçek bileşen verilerinin aralarında boşluk
                              ///< olmadan yan yana dizildiği ana bellek.
 
-  static constexpr uint32_t MAX_ENTITIES =
-      10000; ///< Sistemin desteklediği maksimum varlık sayısı.
+  static constexpr uint32_t INITIAL_CAPACITY =
+      1024; ///< Başlangıç varlık kapasitesi (dinamik olarak büyür).
   static constexpr uint32_t INVALID_INDEX =
       0xFFFFFFFF; ///< Varlığın bu bileşene sahip olmadığını belirten geçersiz
                   ///< indeks değeri.
@@ -42,7 +60,7 @@ public:
    * @param memoryManager Bellek tahsisleri için kullanılacak yönetici.
    */
   explicit SparseSet(memory::MemoryManager &memoryManager)
-      : mSparseMap(MAX_ENTITIES, INVALID_INDEX,
+      : mSparseMap(INITIAL_CAPACITY, INVALID_INDEX,
                    memoryManager.getPoolResource()),
         mEntities(memoryManager.getPoolResource()),
         mData(memoryManager.getPoolResource()) {
@@ -58,8 +76,11 @@ public:
    */
   void addComponent(Entity entity, const T &data) {
     uint32_t entityIndex = EntityManager::getIndex(entity);
-    assert(entityIndex < MAX_ENTITIES &&
-           "Varlik indeksi maksimum siniri asiyor!");
+    if (entityIndex >= mSparseMap.size()) {
+      mSparseMap.resize(
+          std::max(entityIndex + 1, static_cast<uint32_t>(mSparseMap.size() * 2)),
+          INVALID_INDEX);
+    }
     assert(mSparseMap[entityIndex] == INVALID_INDEX &&
            "Varlik zaten bu bilesene sahip!");
     uint32_t denseIndex = static_cast<uint32_t>(mData.size());
@@ -78,8 +99,8 @@ public:
    */
   void removeComponent(Entity entity) {
     uint32_t entityIndex = EntityManager::getIndex(entity);
-    assert(entityIndex < MAX_ENTITIES &&
-           "Varlik indeksi maksimum siniri asiyor!");
+    if (entityIndex >= mSparseMap.size())
+      return;
     uint32_t indexOfRemoved = mSparseMap[entityIndex];
     assert(indexOfRemoved != INVALID_INDEX &&
            "Varlik bu bilesene sahip degil!");
@@ -105,7 +126,7 @@ public:
    */
   [[nodiscard]] bool hasComponent(Entity entity) const {
     uint32_t entityIndex = EntityManager::getIndex(entity);
-    return entityIndex < MAX_ENTITIES &&
+    return entityIndex < mSparseMap.size() &&
            mSparseMap[entityIndex] != INVALID_INDEX;
   }
 
@@ -124,7 +145,7 @@ public:
 
   [[nodiscard]] const T &getData(Entity entity) const {
     uint32_t entityIndex = EntityManager::getIndex(entity);
-    ssert(hasComponent(entity) && "Varlik bu bilesene sahip degil!");
+    assert(hasComponent(entity) && "Varlik bu bilesene sahip degil!");
     uint32_t denseIndex = mSparseMap[entityIndex];
     return mData[denseIndex];
   }

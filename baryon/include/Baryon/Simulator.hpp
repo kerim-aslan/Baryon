@@ -1,3 +1,21 @@
+/*
+ * Baryon - A custom physics engine
+ * Copyright (C) 2026 Kerim Aslan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 
 #include "Baryon/memory/MemoryManager.hpp"
@@ -10,6 +28,7 @@
 #include "Baryon/systems/IslandSystem.hpp"
 #include "Baryon/body/Body.hpp"
 #include "Baryon/collision/Ray.hpp"
+#include "Baryon/collision/CollisionListener.hpp"
 
 #include <vector>
 
@@ -161,11 +180,25 @@ public:
      * @param timeStep Adım boyutu (Örn: 1.0f/120.0f değeri 120 Hz hız sağlar).
      */
     void setFixedTimeStep(float timeStep) { mFixedTimeStep = timeStep; }
+    [[nodiscard]] float getFixedTimeStep() const { return mFixedTimeStep; }
 
     /**
      * @brief Veritabanına (Registry) doğrudan erişim sağlar (İleri düzey kullanım).
      */
     [[nodiscard]] Core::Registry& getRegistry() { return mRegistry; }
+    [[nodiscard]] const Core::Registry& getRegistry() const { return mRegistry; }
+
+    /**
+     * @brief Aktif temas manifoldlarına doğrudan salt okunur erişim sağlar.
+     */
+    [[nodiscard]] const auto& getManifolds() const { return mCollisionSystem.getManifolds(); }
+
+    /**
+     * @brief Çarpışma ve tetikleyici olaylarını dinleyecek kullanıcı arayüzünü bağlar.
+     */
+    void setCollisionListener(CollisionListener* listener) {
+        mCollisionSystem.setListener(listener);
+    }
 
     /**
      * @brief Dünyanın o anki tam durumunu kopyalar (Snapshot).

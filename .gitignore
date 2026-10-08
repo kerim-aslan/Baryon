@@ -9,3 +9,5 @@
 *.dll
 *.lib
 *.zip
+\docs
+imgui.ini
