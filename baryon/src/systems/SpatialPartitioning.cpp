@@ -1,3 +1,21 @@
+/*
+ * Baryon - A custom physics engine
+ * Copyright (C) 2026 Kerim Aslan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /**
  * @file SpatialPartitioning.cpp
  * @brief Uzaysal Bölümleme (Geniş Faz) sistemi uygulaması.
@@ -6,6 +24,7 @@
  */
 
 #include "Baryon/systems/SpatialPartitioning.hpp"
+#include "Baryon/Core/CoreComponents.hpp"
 #include <ranges>
 
 namespace Baryon::systems {
@@ -85,6 +104,15 @@ void SpatialPartitioning::updateEntityInTree(ecs::Entity entity) {
 
     Vector3 worldCenter = transform.position + (transform.orientation * center);
     collision::AABB worldAABB(worldCenter - rotatedExtents, worldCenter + rotatedExtents);
+
+    // Hareket eden nesneler için hız süpürmesi (Swept AABB): Hızlı nesnelerin broad-phase'de atlanmasını engeller
+    if (mRegistry.hasComponent<Core::Motion>(entity)) {
+        const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
+        Vector3 disp = motion.linearVelocity * 0.02f;
+        if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
+        if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
+        if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;
+    }
 
     collider.treeNodeIndex = mTree.updateLeaf(collider.treeNodeIndex, worldAABB); 
 }
@@ -182,6 +210,14 @@ void SpatialPartitioning::step() {
         Vector3 worldCenter = transform.position + (transform.orientation * center);
         collision::AABB worldAABB(worldCenter - rotatedExtents, worldCenter + rotatedExtents);
 
+        if (mRegistry.hasComponent<Core::Motion>(entity)) {
+            const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
+            Vector3 disp = motion.linearVelocity * 0.02f;
+            if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
+            if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
+            if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;
+        }
+
         collider.treeNodeIndex = mTree.updateLeaf(collider.treeNodeIndex, worldAABB);
     }
 
@@ -204,6 +240,14 @@ void SpatialPartitioning::step() {
 
         mTree.query(aabbA, [&](ecs::Entity entityB) {
             if (entityA.id == entityB.id) return;
+
+            if (!mRegistry.hasComponent<ecs::ColliderData>(entityB)) return;
+            const auto& colliderB = mRegistry.getComponent<ecs::ColliderData>(entityB);
+
+            // Çarpışma Filtreleme (Bitmask): İki nesne birbirinin maskesinde yoksa çifti ele!
+            if ((colliderA.layer & colliderB.mask) == 0 || (colliderB.layer & colliderA.mask) == 0) {
+                return;
+            }
 
             bool isB_Static = false;
             bool isB_Sleeping = false;

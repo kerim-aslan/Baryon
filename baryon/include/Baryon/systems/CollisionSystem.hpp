@@ -1,3 +1,21 @@
+/*
+ * Baryon - A custom physics engine
+ * Copyright (C) 2026 Kerim Aslan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 
 #include "Baryon/Core/Registry.hpp"
@@ -13,6 +31,10 @@
  *          belirler ve hızlı hareket eden objelerin "tünelleme" (içinden geçme) 
  *          sorununu CCD sistemi ile çözer.
  */
+namespace Baryon {
+class CollisionListener;
+}
+
 namespace Baryon::systems {
 
 /**
@@ -23,6 +45,7 @@ class CollisionSystem {
 private:
     Core::Registry& mRegistry;                   ///< ECS kayıt defteri referansı.
     SpatialPartitioning& mSpatialPartitioning;   ///< Geniş faz (uzaysal bölümleme) sistem referansı.
+    CollisionListener* mListener{nullptr};       ///< Çarpışma ve tetikleyici olaylarını dinleyen kullanıcı sınıfı.
 
     /**
      * @brief Aktif temas bilgilerini (manifold) tutan harita.
@@ -66,6 +89,8 @@ public:
      */
     [[nodiscard]] const auto& getManifolds() const { return mManifoldMap; }
     [[nodiscard]] auto& getManifolds() { return mManifoldMap; }
+
+    void setListener(CollisionListener* listener) { mListener = listener; }
 };
 
 } // namespace Baryon::systems

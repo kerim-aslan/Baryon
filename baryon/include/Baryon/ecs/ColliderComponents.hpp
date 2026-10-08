@@ -1,3 +1,21 @@
+/*
+ * Baryon - A custom physics engine
+ * Copyright (C) 2026 Kerim Aslan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 
 #include "../collision/CollisionShape.hpp"
@@ -39,6 +57,9 @@ struct ColliderData {
    */
   bool isTrigger{false};
 
+  uint32_t layer{0x0001}; ///< Bu nesnenin ait olduğu çarpışma katmanı (varsayılan: 1).
+  uint32_t mask{0xFFFF};  ///< Bu nesnenin çarpışabileceği katmanlar maskesi (varsayılan: hepsi).
+
   /**
    * @brief Varsayılan olarak 1x1x1 boyutlarında standart bir kutu çarpıştırıcı
    * oluşturur.
@@ -69,7 +90,7 @@ private:
       mColliderData; ///< Çarpışma verilerinin bellekte ardışık tutulduğu ana
                      ///< dizi.
 
-  static constexpr uint32_t MAX_ENTITIES = 10000;
+  static constexpr uint32_t INITIAL_CAPACITY = 1024;
   static constexpr uint32_t INVALID_INDEX = 0xFFFFFFFF;
 
 public:
@@ -78,7 +99,7 @@ public:
    * @param memoryManager Bellek tahsisleri için kullanılacak yönetici.
    */
   explicit ColliderComponents(memory::MemoryManager &memoryManager)
-      : mSparseMap(MAX_ENTITIES, INVALID_INDEX,
+      : mSparseMap(INITIAL_CAPACITY, INVALID_INDEX,
                    memoryManager.getPoolResource()),
         mEntities(memoryManager.getPoolResource()),
         mColliderData(memoryManager.getPoolResource()) {}
@@ -90,6 +111,11 @@ public:
    */
   void addComponent(Entity entity, const ColliderData &data) {
     uint32_t entityIndex = EntityManager::getIndex(entity);
+    if (entityIndex >= mSparseMap.size()) {
+      mSparseMap.resize(
+          std::max(entityIndex + 1, static_cast<uint32_t>(mSparseMap.size() * 2)),
+          INVALID_INDEX);
+    }
     uint32_t denseIndex = static_cast<uint32_t>(mColliderData.size());
     mColliderData.push_back(data);
     mEntities.push_back(entity);
@@ -102,7 +128,9 @@ public:
    */
   void removeComponent(Entity entity) {
     uint32_t entityIndex = EntityManager::getIndex(entity);
+    assert(entityIndex < mSparseMap.size());
     uint32_t indexOfRemoved = mSparseMap[entityIndex];
+    assert(indexOfRemoved != INVALID_INDEX);
     uint32_t lastDenseIndex = static_cast<uint32_t>(mColliderData.size() - 1);
 
     // Hızlı silme işlemi: Silinen verinin yerine dizideki en son veriyi taşı
@@ -122,7 +150,9 @@ public:
    * @return Çarpışma özelliği varsa true.
    */
   [[nodiscard]] bool hasComponent(Entity entity) const {
-    return mSparseMap[EntityManager::getIndex(entity)] != INVALID_INDEX;
+    uint32_t entityIndex = EntityManager::getIndex(entity);
+    return entityIndex < mSparseMap.size() &&
+           mSparseMap[entityIndex] != INVALID_INDEX;
   }
 
   /**
