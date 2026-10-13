@@ -18,8 +18,8 @@
  */
 
 #include "Baryon/Simulator.hpp"
+#include "TestCommon.hpp"
 #include <iostream>
-#include <cassert>
 #include <cmath>
 
 using namespace Baryon;
@@ -52,16 +52,13 @@ void testHighSpeedBulletVsThinWall() {
         sim.step(1.0f / 60.0f);
         Vector3 pos = *bullet.getPosition();
         // Mermi duvarın (x=5.0) arkasına ASLA geçmemelidir!
-        if (pos.x > 5.05f) {
-            std::cerr << "FAIL: Bullet tunneled through wall! Pos: " << pos.x << std::endl;
-            assert(false && "Bullet tunneled through thin wall!");
-        }
+        CHECK_MSG(pos.x <= 5.05f, "Bullet tunneled through thin wall!");
     }
 
     Vector3 finalPos = *bullet.getPosition();
     std::cout << "SUCCESS: Bullet stopped at wall! Final X: " << finalPos.x 
               << " (Wall is at x=5.0)" << std::endl;
-    assert(finalPos.x <= 5.05f);
+    CHECK(finalPos.x <= 5.05f);
 }
 
 void testRotatedThinWall() {
@@ -92,13 +89,9 @@ void testRotatedThinWall() {
         Vector3 vel = *box.getLinearVelocity();
         std::cout << "  Step " << step << " | Pos: (" << pos.x << ", " << pos.y << ", " << pos.z << ") | Vel: (" << vel.x << ", " << vel.y << ", " << vel.z << ")" << std::endl;
         // Dönmüş duvarın yüzey denklemi: n = (cos 45, 0, -sin 45) = (0.707, 0, -0.707).
-        // (p - wallPos).dot(n) değeri duvarın arkasına geçip geçmediğini söyler.
-        Vector3 wallNormal = wallPose.orientation * Vector3(1, 0, 0); // veya yerel normal
+        Vector3 wallNormal = wallPose.orientation * Vector3(1, 0, 0);
         float planeDist = (pos - wallPose.position).dot(wallNormal);
-        if (planeDist > 0.3f) {
-            std::cerr << "FAIL: Box penetrated behind rotated wall! Plane dist: " << planeDist << std::endl;
-            assert(false && "Box penetrated behind rotated wall!");
-        }
+        CHECK_MSG(planeDist <= 0.3f, "Box penetrated behind rotated wall!");
     }
 
     Vector3 finalPos = *box.getPosition();
@@ -106,7 +99,7 @@ void testRotatedThinWall() {
     float planeDist = (finalPos - wallPose.position).dot(wallNormal);
     std::cout << "SUCCESS: Box safely slid along rotated wall without penetrating! Final Pos: (" 
               << finalPos.x << ", " << finalPos.z << "), Plane dist: " << planeDist << std::endl;
-    assert(planeDist <= 0.2f);
+    CHECK(planeDist <= 0.2f);
 }
 
 void testDynamicHeadOnCollision() {
@@ -137,20 +130,20 @@ void testDynamicHeadOnCollision() {
         Vector3 posA = *bodyA.getPosition();
         Vector3 posB = *bodyB.getPosition();
         // A her zaman B'nin solunda kalmalıdır, birbirlerinin içinden geçip yer değiştirmemelidirler!
-        if (posA.x > posB.x) {
-            std::cerr << "FAIL: Bodies swapped positions (tunneling)! posA: " << posA.x << " posB: " << posB.x << std::endl;
-            assert(false && "Dynamic bodies tunneled through each other!");
-        }
+        CHECK_MSG(posA.x <= posB.x, "Dynamic bodies tunneled through each other!");
     }
 
-    std::cout << "SUCCESS: Dynamic bodies collided without tunneling! PosA: " << (*bodyA.getPosition()).x 
-              << " PosB: " << (*bodyB.getPosition()).x << std::endl;
+    Vector3 finalPosA = *bodyA.getPosition();
+    Vector3 finalPosB = *bodyB.getPosition();
+    std::cout << "SUCCESS: Dynamic bodies collided without tunneling! PosA: " << finalPosA.x 
+              << " PosB: " << finalPosB.x << std::endl;
+    CHECK(finalPosA.x <= finalPosB.x);
 }
 
 void testStaticMeshFloor() {
-    std::cout << "[TEST 4] High-Speed Sphere (-80 m/s) vs Static Mesh Floor..." << std::endl;
+    std::cout << "[TEST 4] High-Speed Sphere (-80 m/s) vs Static Mesh Floor (Gravity ON, 300 steps)..." << std::endl;
     Simulator sim;
-    sim.setAccelerationField(Vector3(0, 0, 0));
+    sim.setAccelerationField(Vector3(0, -9.81f, 0)); // E3: Yerçekimi açık
 
     // Y = 0'da iki üçgenden oluşan yatay zemin
     std::vector<Vector3> verts = {
@@ -171,7 +164,7 @@ void testStaticMeshFloor() {
     Body floor = sim.createBody(floorPose, collision::CollisionShape(meshShape));
     floor.setBodyType(Core::BodyType::Static);
 
-    // Y = 5.0'dan aşağıya -80 m/s ile fırlatılan küre
+    // Y = 5.0'dan aşağıya -80 m/s ile fırlatılan küre (r=0.2)
     Pose spherePose;
     spherePose.position = Vector3(0.0f, 5.0f, 0.0f);
     collision::SphereShape sphereShape(0.2f);
@@ -180,18 +173,18 @@ void testStaticMeshFloor() {
     fallingBody.setCCD(true);
     fallingBody.setLinearVelocity(Vector3(0.0f, -80.0f, 0.0f));
 
-    for (int step = 0; step < 10; ++step) {
+    // E3: 300 adım simüle et (5 saniye boyunca yerçekimi altında dinlenmeyi izle)
+    for (int step = 0; step < 300; ++step) {
         sim.step(1.0f / 60.0f);
         Vector3 pos = *fallingBody.getPosition();
-        if (pos.y < -0.1f) {
-            std::cerr << "FAIL: Falling body tunneled through static mesh floor! Y: " << pos.y << std::endl;
-            assert(false && "Fell through static mesh floor!");
-        }
+        CHECK_MSG(pos.y >= -0.1f, "Fell through static mesh floor!");
     }
 
     Vector3 finalPos = *fallingBody.getPosition();
-    std::cout << "SUCCESS: Sphere stopped on Static Mesh Floor! Final Y: " << finalPos.y << std::endl;
-    assert(finalPos.y >= -0.05f);
+    std::cout << "  -> Sphere final Y on Static Mesh Floor: " << finalPos.y 
+              << " (Expected resting height: ~0.20m)" << std::endl;
+    // E3: Durma yüksekliği denetle (r=0.2 için resting height >= 0.17m olmalıdır)
+    CHECK_MSG(finalPos.y >= 0.17f, "Sphere resting height too low (sank into mesh floor)");
 }
 
 int main() {
@@ -200,6 +193,5 @@ int main() {
     testRotatedThinWall();
     testDynamicHeadOnCollision();
     testStaticMeshFloor();
-    std::cout << "=== ALL TUNNELING TESTS PASSED (0 TUNNELING) ===" << std::endl;
-    return 0;
+    return Baryon::Test::reportAndExit();
 }

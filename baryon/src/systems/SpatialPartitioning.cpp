@@ -108,7 +108,7 @@ void SpatialPartitioning::updateEntityInTree(ecs::Entity entity) {
     // Hareket eden nesneler için hız süpürmesi (Swept AABB): Hızlı nesnelerin broad-phase'de atlanmasını engeller
     if (mRegistry.hasComponent<Core::Motion>(entity)) {
         const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
-        Vector3 disp = motion.linearVelocity * 0.02f;
+        Vector3 disp = motion.linearVelocity * mVelocityExpansion;
         if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
         if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
         if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;
@@ -186,9 +186,17 @@ void SpatialPartitioning::step() {
     auto& entities = collidersPool.getAllEntities();
     auto& colliders = collidersPool.getAllData();
 
-    // Aşama 1: Tüm AABB'leri güncelle
+    // Aşama 1: Sadece hareket eden (Dinamik ve Uyanık) nesnelerin AABB'lerini güncelle (D2)
     for (auto&& [entity, collider] : std::views::zip(entities, colliders)) {
         if (collider.treeNodeIndex == collision::NULL_NODE) continue;
+
+        if (mRegistry.hasComponent<Core::BodyState>(entity)) {
+            const auto& state = mRegistry.getComponent<Core::BodyState>(entity);
+            if (state.type == Core::BodyType::Static || state.isSleeping) {
+                continue; // Statik veya uyuyan gövdelerin AABB'si değişmez
+            }
+        }
+
         if (!mRegistry.hasComponent<Pose>(entity)) continue;
 
         const auto& transform = mRegistry.getComponent<Pose>(entity);
@@ -212,7 +220,7 @@ void SpatialPartitioning::step() {
 
         if (mRegistry.hasComponent<Core::Motion>(entity)) {
             const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
-            Vector3 disp = motion.linearVelocity * 0.02f;
+            Vector3 disp = motion.linearVelocity * mVelocityExpansion;
             if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
             if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
             if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;

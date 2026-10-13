@@ -29,6 +29,7 @@
 #include "Baryon/body/Body.hpp"
 #include "Baryon/collision/Ray.hpp"
 #include "Baryon/collision/CollisionListener.hpp"
+#include "Baryon/SimulationSettings.hpp"
 
 #include <vector>
 
@@ -72,8 +73,10 @@ private:
     systems::IslandSystem mIslandSystem;         ///< Optimizasyon ve uyku (sleep) yöneticisi.
     /// @}
 
+    SimulationSettings mSettings{};             ///< Simülasyon yapılandırma ayarları.
     float mFixedTimeStep{1.0f / 60.0f};         ///< Sabit fizik adım boyutu (Varsayılan: 16.67ms).
     float mAccumulator{0.0f};                    ///< Kareler arası zamanı dengeleyen biriktirici.
+    int mMaxSubSteps{8};                         ///< Tek karede izin verilen maksimum alt adım sayısı (Ölüm spirali koruması).
     
 public:
     /**
@@ -84,15 +87,64 @@ public:
     // Güvenlik: Motorun merkezi birimleri kopyalanamaz.
     Simulator(const Simulator&) = delete;
     Simulator& operator=(const Simulator&) = delete;
+
+    /**
+     * @brief Simülasyon yapılandırma ayarlarını döndürür.
+     */
+    [[nodiscard]] const SimulationSettings& getSettings() const { return mSettings; }
+    [[nodiscard]] SimulationSettings& getSettings() { return mSettings; }
+
+    /**
+     * @brief Simülasyon ayarlarını günceller ve alt sistemlere iletir.
+     */
+    void setSettings(const SimulationSettings& settings);
     
     /**
      * @brief Fizik dünyasını geçen süre kadar simüle eder.
      * @details Sabit zaman adımı kullanarak fiziksel tutarlılığı korur. 
      *          Eğer bilgisayar çok yavaşlarsa, simülasyonun kilitlenmesini 
-     *          önlemek için "performans kaybı koruması" (0.1s sınırı) devreye girer.
+     *          önlemek için "performans kaybı koruması" (maxSubSteps sınırı) devreye girer.
      * @param deltaTime Son kareden bu yana geçen gerçek süre (saniye).
      */
     void step(float deltaTime);
+
+    /**
+     * @brief Tek bir karede çalıştırılabilecek maksimum alt adım sayısını ayarlar.
+     * @param maxSubSteps Maksimum alt adım sayısı (varsayılan 8).
+     */
+    void setMaxSubSteps(int maxSubSteps) {
+        mSettings.maxSubSteps = std::max(1, maxSubSteps);
+        mMaxSubSteps = mSettings.maxSubSteps;
+    }
+
+    /**
+     * @brief Mevcut maksimum alt adım sayısını döndürür.
+     */
+    [[nodiscard]] int getMaxSubSteps() const {
+        return mSettings.maxSubSteps;
+    }
+
+    /**
+     * @brief İki fizik adımı arasındaki zaman oranını (alpha) döndürür.
+     * @details Grafik motorlarında kareler arası yumuşak render interpolasyonu için kullanılır.
+     * @return [0.0, 1.0) aralığında interpolasyon katsayısı.
+     */
+    [[nodiscard]] float getInterpolationAlpha() const {
+        return (mFixedTimeStep > 0.0f) ? (mAccumulator / mFixedTimeStep) : 0.0f;
+    }
+
+    /**
+     * @brief Adaların ve cisimlerin uykuya geçiş eşiklerini ayarlar.
+     * @param linearVelThreshold Uykuya geçiş için maksimum çizgisel hız (m/s).
+     * @param angularVelThreshold Uykuya geçiş için maksimum açısal hız (rad/s).
+     * @param timeToSleep Bu hızların altında kalınması gereken süre (saniye).
+     */
+    void setSleepThresholds(float linearVelThreshold, float angularVelThreshold, float timeToSleep = 0.5f) {
+        mSettings.sleepLinearThreshold = linearVelThreshold;
+        mSettings.sleepAngularThreshold = angularVelThreshold;
+        mSettings.timeToSleep = timeToSleep;
+        mIslandSystem.setSleepThresholds(linearVelThreshold, angularVelThreshold, timeToSleep);
+    }
 
     /**
      * @brief Dünyaya bir "lazer" (ışın) fırlatarak objeleri arar.
@@ -189,9 +241,10 @@ public:
     [[nodiscard]] const Core::Registry& getRegistry() const { return mRegistry; }
 
     /**
-     * @brief Aktif temas manifoldlarına doğrudan salt okunur erişim sağlar.
+     * @brief Aktif temas manifoldlarına doğrudan erişim sağlar.
      */
     [[nodiscard]] const auto& getManifolds() const { return mCollisionSystem.getManifolds(); }
+    [[nodiscard]] auto& getManifolds() { return mCollisionSystem.getManifolds(); }
 
     /**
      * @brief Çarpışma ve tetikleyici olaylarını dinleyecek kullanıcı arayüzünü bağlar.
@@ -206,15 +259,20 @@ public:
      * @return Kaydedilen dünya durumu.
      */
     [[nodiscard]] Core::Snapshot saveSnapshot() const {
-        return mRegistry.save();
+        Core::Snapshot snap = mRegistry.save();
+        snap.accumulator = mAccumulator;
+        snap.manifolds = mCollisionSystem.getManifolds();
+        return snap;
     }
 
     /**
-     * @brief Dünyayı daha önce kaydedilmiş bir duruma geri döndürür.
+     * @brief Dünyayı daha önce kaydedilmiş bir duruma geri döndürür (B2: Deterministik geri yükleme).
      * @param snap Yüklenecek durum kaydı.
      */
     void restoreSnapshot(const Core::Snapshot& snap) {
         mRegistry.load(snap);
+        mAccumulator = snap.accumulator;
+        mCollisionSystem.getManifolds() = snap.manifolds;
         mSpatialPartitioning.rebuildTree();
     }
 

@@ -6,7 +6,7 @@
 #include <Baryon/Simulator.hpp>
 #include <Baryon/collision/CollisionShape.hpp>
 #include <Baryon/collision/CollisionListener.hpp>
-#include <cassert>
+#include "TestCommon.hpp"
 #include <iostream>
 #include <cmath>
 
@@ -39,39 +39,39 @@ void runBodyApiTests() {
     Simulator sim;
     Body body = sim.createBody(Pose(Vector3(0, 5, 0)), collision::CollisionShape{collision::BoxShape(Vector3(0.5f, 0.5f, 0.5f))});
     body.setBodyType(Core::BodyType::Dynamic);
-    body.setMass(2.0f);
+    CHECK(body.setMass(2.0f).has_value());
 
     // 1. Force
     auto resForce = body.applyForce(Vector3(0, 100, 0));
-    assert(resForce.has_value());
-    assert(!body.isSleeping().value());
+    CHECK(resForce.has_value());
+    CHECK(!body.isSleeping().value());
 
     // 2. Torque
     auto resTorque = body.applyTorque(Vector3(0, 50, 0));
-    assert(resTorque.has_value());
+    CHECK(resTorque.has_value());
 
     // 3. Angular Impulse
     auto resAngImp = body.applyAngularImpulse(Vector3(0, 10, 0));
-    assert(resAngImp.has_value());
+    CHECK(resAngImp.has_value());
 
     // 4. Angular Velocity getter/setter
     body.setAngularVelocity(Vector3(1, 2, 3));
     Vector3 w = body.getAngularVelocity().value();
-    assert(std::abs(w.x - 1.0f) < 1e-4f && std::abs(w.y - 2.0f) < 1e-4f && std::abs(w.z - 3.0f) < 1e-4f);
+    CHECK(std::abs(w.x - 1.0f) < 1e-4f && std::abs(w.y - 2.0f) < 1e-4f && std::abs(w.z - 3.0f) < 1e-4f);
 
     // 5. Material
     body.setMaterial(0.8f, 0.9f);
 
     // 6. Trigger
-    assert(!body.isTrigger().value());
+    CHECK(!body.isTrigger().value());
     body.setTrigger(true);
-    assert(body.isTrigger().value());
+    CHECK(body.isTrigger().value());
 
     // 7. Layer and Mask
     body.setCollisionLayer(0x0004);
     body.setCollisionMask(0x0001);
-    assert(body.getCollisionLayer().value() == 0x0004);
-    assert(body.getCollisionMask().value() == 0x0001);
+    CHECK(body.getCollisionLayer().value() == 0x0004);
+    CHECK(body.getCollisionMask().value() == 0x0001);
 
     std::cout << "  -> PASSED: All Body API functions work correctly!" << std::endl;
 }
@@ -89,7 +89,7 @@ void runTriggerMechanicsTest() {
     // Dynamic ball flying directly through trigger from X = -3 to +3 at 10 m/s
     Body runner = sim.createBody(Pose(Vector3(-3.0f, 0, 0)), collision::CollisionShape{collision::SphereShape(0.4f)});
     runner.setBodyType(Core::BodyType::Dynamic);
-    runner.setMass(1.0f);
+    CHECK(runner.setMass(1.0f).has_value());
     runner.setLinearVelocity(Vector3(10.0f, 0, 0));
 
     // Step through the trigger
@@ -101,16 +101,16 @@ void runTriggerMechanicsTest() {
             if (m.isTriggerPair) {
                 wasInsideTrigger = true;
                 for (uint32_t c = 0; c < m.contactCount; ++c) {
-                    assert(m.contacts[c].normalImpulse == 0.0f); // MUST NOT apply impulse
+                    CHECK_MSG(m.contacts[c].normalImpulse == 0.0f, "Trigger contact must not apply normal impulse");
                 }
             }
         }
     }
 
-    assert(wasInsideTrigger);
+    CHECK_MSG(wasInsideTrigger, "Runner should have entered trigger");
     // After 1 second at 10 m/s, runner should be around X = 7.0 without stopping or bouncing
     Vector3 finalPos = sim.getRegistry().getComponent<Pose>(runner.getEntity()).position;
-    assert(finalPos.x > 3.0f);
+    CHECK_MSG(finalPos.x > 3.0f, "Runner should have phased through trigger");
     std::cout << "  -> PASSED: Runner phased through trigger with zero bounce! Final X: " << finalPos.x << std::endl;
 }
 
@@ -134,7 +134,7 @@ void runCollisionFilteringTest() {
     sim.step(1.0f / 60.0f);
 
     // Manifold count MUST be 0 because layers and masks do not overlap!
-    assert(sim.getManifolds().empty());
+    CHECK_MSG(sim.getManifolds().empty(), "Filtered layers should produce no manifolds");
     std::cout << "  -> PASSED: Red and Blue objects correctly ignored each other via bitmask filter!" << std::endl;
 }
 
@@ -149,7 +149,7 @@ void runDistanceConstraintDriftTest() {
     float targetDist = 2.0f;
     Body bob = sim.createBody(Pose(Vector3(0.0f, 10.0f - targetDist, 0)), collision::CollisionShape{collision::SphereShape(0.3f)});
     bob.setBodyType(Core::BodyType::Dynamic);
-    bob.setMass(2.0f);
+    CHECK(bob.setMass(2.0f).has_value());
 
     sim.createDistanceConstraint(anchor, bob, targetDist);
     // Simulate vertical hanging under gravity for 120 steps (2 seconds)
@@ -161,7 +161,7 @@ void runDistanceConstraintDriftTest() {
     Vector3 pBob = sim.getRegistry().getComponent<Pose>(bob.getEntity()).position;
     float currentDist = (pBob - pAnchor).length();
     float drift = std::abs(currentDist - targetDist);
-    assert(drift < 0.05f);
+    CHECK_MSG(drift < 0.05f, "Distance constraint drift should be < 0.05m");
     std::cout << "  -> PASSED: Target distance: " << targetDist << "m | Actual: " << currentDist 
               << "m | Zero Drift achieved: " << drift << "m" << std::endl;
 }
@@ -182,12 +182,12 @@ void runCollisionListenerEventsTest() {
     s2.setBodyType(Core::BodyType::Dynamic);
 
     sim.step(1.0f / 60.0f);
-    assert(listener.collisionEnterCount > 0);
+    CHECK_MSG(listener.collisionEnterCount > 0, "collisionEnterCount should be > 0");
 
     // Move s2 far away
     sim.getRegistry().getComponent<Pose>(s2.getEntity()).position = Vector3(100.0f, 0, 0);
     sim.step(1.0f / 60.0f);
-    assert(listener.collisionExitCount > 0);
+    CHECK_MSG(listener.collisionExitCount > 0, "collisionExitCount should be > 0");
 
     std::cout << "  -> PASSED: onCollisionEnter (" << listener.collisionEnterCount 
               << ") and onCollisionExit (" << listener.collisionExitCount << ") fired successfully!" << std::endl;
@@ -202,7 +202,7 @@ void runRaycastAllShapesTest() {
     cap.setBodyType(Core::BodyType::Static);
 
     auto hitCap = sim.raycast(Vector3(-5, 5, 0), Vector3(1, 0, 0), 10.0f);
-    assert(hitCap.hasHit);
+    CHECK_MSG(hitCap.hasHit, "Raycast against capsule should hit");
 
     // 2. Static Mesh at (0, 10, 0)
     std::vector<Vector3> verts = {
@@ -216,7 +216,7 @@ void runRaycastAllShapesTest() {
     meshBody.setBodyType(Core::BodyType::Static);
 
     auto hitMesh = sim.raycast(Vector3(0, 15, 0), Vector3(0, -1, 0), 10.0f);
-    assert(hitMesh.hasHit);
+    CHECK_MSG(hitMesh.hasHit, "Raycast against static mesh should hit");
 
     std::cout << "  -> PASSED: Capsule hit distance: " << hitCap.distance 
               << "m | StaticMesh (Möller-Trumbore) hit distance: " << hitMesh.distance << "m" << std::endl;
@@ -233,7 +233,7 @@ void runDynamicSparseSetGrowthTest() {
         sim.createBody(Pose(Vector3(i * 0.5f, 0, 0)), shape);
     }
 
-    assert(sim.getRegistry().getComponentPool<Pose>().getAllEntities().size() == count);
+    CHECK_MSG(sim.getRegistry().getComponentPool<Pose>().getAllEntities().size() == count, "SparseSet entity count must match created count");
     std::cout << "  -> PASSED: Created " << count << " entities without crash or assertion failure!" << std::endl;
 }
 
@@ -250,8 +250,5 @@ int main() {
     runRaycastAllShapesTest();
     runDynamicSparseSetGrowthTest();
 
-    std::cout << "==================================================" << std::endl;
-    std::cout << "  >>> ALL 7 NEW FEATURE VERIFICATION TESTS PASSED <<<" << std::endl;
-    std::cout << "==================================================" << std::endl;
-    return 0;
+    return Baryon::Test::reportAndExit();
 }

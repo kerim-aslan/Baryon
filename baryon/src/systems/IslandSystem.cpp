@@ -35,66 +35,91 @@ namespace Baryon::systems {
 
 IslandSystem::IslandSystem(Core::Registry &registry) : mRegistry(registry) {}
 
-/**
- * @brief Ada tespiti yapar, uyku sürelerini yönetir ve aktif iş yükünü
- * belirler.
- * @details Süreç üç ana aşamadan oluşur:
- *
- *          1. BAĞLANTI GRAFİĞİ: Temas verileri ve kısıtlamalar (joint)
- * taranarak dinamik cisimler arasındaki komşuluk ilişkileri haritalanır.
- *
- *          2. ADA TESPİTİ (BFS): Ziyaret edilmemiş her dinamik cisimden
- * başlanarak Genişlik Öncelikli Arama (BFS) yapılır ve birbirine bağlı tüm
- * nesneler aynı "ada" içerisine toplanır.
- *
- *          3. UYKU YÖNETİMİ: Bir adadaki tüm cisimlerin hızı belirlenen
- * eşiklerin (0.20 m/s ve 0.35 rad/s) altında kalırsa, ada uyku moduna girmeye
- * aday olur. 0.5 saniye boyunca bu durum korunursa, ada tamamen uyutulur ve
- * hesaplamadan çıkarılır.
- *
- * @param manifolds Mevcut aktif temas verileri.
- * @param deltaTime Zaman adımı.
- * @return Çözücüye gönderilecek olan aktif (uyumayan) adaların listesi.
- */
-std::vector<std::vector<ecs::Entity>> IslandSystem::step(
+void IslandSystem::buildAdjacencyList(
     const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
-    float deltaTime) {
-
-  std::vector<std::vector<ecs::Entity>> activeIslands;
-
-  std::unordered_map<uint32_t, std::vector<ecs::Entity>> adjList;
-  adjList.reserve(mRegistry.getComponentPool<Core::BodyState>().getAllEntities().size());
-
+    std::unordered_map<uint32_t, std::vector<ecs::Entity>> &adjList) {
   auto addEdge = [&](ecs::Entity a, ecs::Entity b) {
     if (mRegistry.hasComponent<Core::BodyState>(a) &&
-        mRegistry.getComponent<Core::BodyState>(a).type ==
-            Core::BodyType::Dynamic)
+        mRegistry.getComponent<Core::BodyState>(a).type == Core::BodyType::Dynamic)
       adjList[a.id].push_back(b);
     if (mRegistry.hasComponent<Core::BodyState>(b) &&
-        mRegistry.getComponent<Core::BodyState>(b).type ==
-            Core::BodyType::Dynamic)
+        mRegistry.getComponent<Core::BodyState>(b).type == Core::BodyType::Dynamic)
       adjList[b.id].push_back(a);
   };
 
-  // Temas halindeki cisimler arasında bağ kur
   for (const auto &[key, manifold] : manifolds) {
     if (!manifold.isTriggerPair)
       addEdge(manifold.entityA, manifold.entityB);
   }
 
-  // Sabit mesafe kısıtlamaları olan cisimler arasında bağ kur
   auto &distConstraints =
       mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
   for (const auto &constraint : distConstraints)
     addEdge(constraint.entityA, constraint.entityB);
 
-  // Menteşe/Dönme kısıtlamaları olan cisimler arasında bağ kur
   auto &revConstraints =
       mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
   for (const auto &constraint : revConstraints)
     addEdge(constraint.entityA, constraint.entityB);
+}
 
-  // AŞAMA 2: BFS algoritması ile bağımsız adaları bul
+void IslandSystem::processIslandSleep(
+    std::vector<ecs::Entity> &islandBodies,
+    bool canSleep,
+    float deltaTime,
+    std::vector<Island> &activeIslands,
+    std::unordered_map<uint32_t, size_t> &entityToIsland) {
+  if (canSleep) {
+    bool fellAsleep = false;
+    for (ecs::Entity ent : islandBodies) {
+      auto &state = mRegistry.getComponent<Core::BodyState>(ent);
+      if (state.type != Core::BodyType::Dynamic)
+        continue;
+
+      state.sleepTimer += deltaTime;
+      if (state.sleepTimer >= mTimeToSleep) {
+        if (!state.isSleeping)
+          BARYON_LOG_SLEEP("Entity ", ent.id, " fell asleep.");
+        state.isSleeping = true;
+        fellAsleep = true;
+
+        if (mRegistry.hasComponent<Core::Motion>(ent)) {
+          auto &motion = mRegistry.getComponent<Core::Motion>(ent);
+          motion.linearVelocity = Vector3(0, 0, 0);
+          motion.angularVelocity = Vector3(0, 0, 0);
+        }
+      }
+    }
+    if (!fellAsleep) {
+      size_t islandIdx = activeIslands.size();
+      for (ecs::Entity ent : islandBodies) {
+        entityToIsland[ent.id] = islandIdx;
+      }
+      Island newIsland;
+      newIsland.bodies = std::move(islandBodies);
+      activeIslands.push_back(std::move(newIsland));
+    }
+  } else {
+    for (ecs::Entity ent : islandBodies) {
+      auto &state = mRegistry.getComponent<Core::BodyState>(ent);
+      state.sleepTimer = 0.0f;
+      state.isSleeping = false;
+    }
+    size_t islandIdx = activeIslands.size();
+    for (ecs::Entity ent : islandBodies) {
+      entityToIsland[ent.id] = islandIdx;
+    }
+    Island newIsland;
+    newIsland.bodies = std::move(islandBodies);
+    activeIslands.push_back(std::move(newIsland));
+  }
+}
+
+void IslandSystem::findIslandsBFS(
+    const std::unordered_map<uint32_t, std::vector<ecs::Entity>> &adjList,
+    float deltaTime,
+    std::vector<Island> &activeIslands,
+    std::unordered_map<uint32_t, size_t> &entityToIsland) {
   std::unordered_set<uint32_t> visited;
   auto &entities =
       mRegistry.getComponentPool<Core::BodyState>().getAllEntities();
@@ -108,25 +133,21 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
         visited.contains(startEntity.id))
       continue;
 
-    std::vector<ecs::Entity> island;
+    std::vector<ecs::Entity> islandBodies;
     std::queue<ecs::Entity> q;
 
     q.push(startEntity);
     visited.insert(startEntity.id);
 
     bool canSleep = true;
-    const float kSleepLinearThresholdSq =
-        physics::PhysicsConstants::SleepLinearThresholdSq;
-    const float kSleepAngularThresholdSq =
-        physics::PhysicsConstants::SleepAngularThresholdSq;
+    const float kSleepLinearThresholdSq = mSleepLinearThresholdSq;
+    const float kSleepAngularThresholdSq = mSleepAngularThresholdSq;
 
     while (!q.empty()) {
       ecs::Entity curr = q.front();
       q.pop();
-      island.push_back(curr);
+      islandBodies.push_back(curr);
 
-      // Hareket Kontrolü: Adadaki herhangi bir cisim hızlıysa ada uyanık
-      // kalmalıdır
       if (mRegistry.hasComponent<Core::Motion>(curr)) {
         auto &currMotion = mRegistry.getComponent<Core::Motion>(curr);
         if (currMotion.linearVelocity.lengthSquare() >=
@@ -137,63 +158,94 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
         }
       }
 
-      for (ecs::Entity neighbor : adjList[curr.id]) {
-        if (!mRegistry.hasComponent<Core::BodyState>(neighbor))
-          continue;
-        auto neighborType =
-            mRegistry.getComponent<Core::BodyState>(neighbor).type;
+      auto it = adjList.find(curr.id);
+      if (it != adjList.end()) {
+        for (ecs::Entity neighbor : it->second) {
+          if (!mRegistry.hasComponent<Core::BodyState>(neighbor))
+            continue;
+          auto neighborType =
+              mRegistry.getComponent<Core::BodyState>(neighbor).type;
 
-        if (neighborType == Core::BodyType::Dynamic) {
-          if (!visited.contains(neighbor.id)) {
-            visited.insert(neighbor.id);
-            q.push(neighbor);
+          if (neighborType == Core::BodyType::Dynamic) {
+            if (!visited.contains(neighbor.id)) {
+              visited.insert(neighbor.id);
+              q.push(neighbor);
+            }
           }
         }
-        // Statik veya Kinematik nesneler yapraktır (leaf). 
-        // Arama bunların üzerinden devam etmez ve adaya dahil edilmezler.
-        // Bu sayede statik zemin yüzünden tüm adaların temasları birbirine karışmaz.
       }
     }
 
-    // AŞAMA 3: Adanın uyku durumuna karar ver
-    if (canSleep) {
-      // Ada hareketsiz: Tüm nesnelerin uyku sayaçlarını artır
-      bool fellAsleep = false;
-      for (ecs::Entity ent : island) {
-        auto &state = mRegistry.getComponent<Core::BodyState>(ent);
-        if (state.type != Core::BodyType::Dynamic)
-          continue;
+    processIslandSleep(islandBodies, canSleep, deltaTime, activeIslands, entityToIsland);
+  }
+}
 
-        state.sleepTimer += deltaTime;
-        if (state.sleepTimer >= 0.5f) { // Belirlenen süre sonunda uykuya dal
-          if (!state.isSleeping)
-            BARYON_LOG_SLEEP("Entity ", ent.id, " fell asleep.");
-          state.isSleeping = true;
-          fellAsleep = true;
-
-          // Uyuyan cismin enerjisini tamamen sıfırla (Titremeyi önler)
-          if (mRegistry.hasComponent<Core::Motion>(ent)) {
-            auto &motion = mRegistry.getComponent<Core::Motion>(ent);
-            motion.linearVelocity = Vector3(0, 0, 0);
-            motion.angularVelocity = Vector3(0, 0, 0);
-          }
-        }
-      }
-      // Eğer henüz hepsi uykuya dalmadıysa aktif iş yükünde tut
-      if (!fellAsleep) {
-        activeIslands.push_back(std::move(island));
-      }
+void IslandSystem::assignManifoldsAndConstraints(
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    const std::unordered_map<uint32_t, size_t> &entityToIsland,
+    std::vector<Island> &activeIslands) {
+  for (auto &[key, manifold] : manifolds) {
+    if (manifold.isTriggerPair)
+      continue;
+    auto itA = entityToIsland.find(manifold.entityA.id);
+    if (itA != entityToIsland.end()) {
+      activeIslands[itA->second].manifolds.push_back(&manifold);
     } else {
-      for (ecs::Entity ent : island) {
-        auto &state = mRegistry.getComponent<Core::BodyState>(ent);
-        state.sleepTimer = 0.0f;
-        state.isSleeping = false;
+      auto itB = entityToIsland.find(manifold.entityB.id);
+      if (itB != entityToIsland.end()) {
+        activeIslands[itB->second].manifolds.push_back(&manifold);
       }
-      activeIslands.push_back(std::move(island));
     }
   }
 
-  return activeIslands;
+  if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
+    auto &allDist = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
+    for (auto &constraint : allDist) {
+      auto itA = entityToIsland.find(constraint.entityA.id);
+      if (itA != entityToIsland.end()) {
+        activeIslands[itA->second].distanceConstraints.push_back(&constraint);
+      } else {
+        auto itB = entityToIsland.find(constraint.entityB.id);
+        if (itB != entityToIsland.end()) {
+          activeIslands[itB->second].distanceConstraints.push_back(&constraint);
+        }
+      }
+    }
+  }
+
+  if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
+    auto &allRev = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
+    for (auto &constraint : allRev) {
+      auto itA = entityToIsland.find(constraint.entityA.id);
+      if (itA != entityToIsland.end()) {
+        activeIslands[itA->second].revoluteConstraints.push_back(&constraint);
+      } else {
+        auto itB = entityToIsland.find(constraint.entityB.id);
+        if (itB != entityToIsland.end()) {
+          activeIslands[itB->second].revoluteConstraints.push_back(&constraint);
+        }
+      }
+    }
+  }
+}
+
+std::vector<Island> IslandSystem::step(
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    float deltaTime) {
+  mActiveIslands.clear();
+  mAdjList.clear();
+  mEntityToIsland.clear();
+
+  mAdjList.reserve(mRegistry.getComponentPool<Core::BodyState>().getAllEntities().size());
+  buildAdjacencyList(manifolds, mAdjList);
+
+  findIslandsBFS(mAdjList, deltaTime, mActiveIslands, mEntityToIsland);
+
+  if (!mActiveIslands.empty()) {
+    assignManifoldsAndConstraints(manifolds, mEntityToIsland, mActiveIslands);
+  }
+
+  return mActiveIslands;
 }
 
 } // namespace Baryon::systems

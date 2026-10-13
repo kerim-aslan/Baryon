@@ -45,6 +45,15 @@ Simulator::Simulator() : mRegistry(mMemoryManager),
 						 mCollisionSystem(mRegistry, mSpatialPartitioning),
 						 mSolver(mRegistry),
 						 mIslandSystem(mRegistry) {
+	setSettings(mSettings);
+}
+
+void Simulator::setSettings(const SimulationSettings &settings) {
+	mSettings = settings;
+	mFixedTimeStep = settings.fixedTimeStep;
+	mMaxSubSteps = settings.maxSubSteps;
+	mIslandSystem.setSleepThresholds(settings.sleepLinearThreshold, settings.sleepAngularThreshold, settings.timeToSleep);
+	mSpatialPartitioning.setVelocityExpansion(settings.broadPhaseVelocityExpansion);
 }
 
 /**
@@ -79,7 +88,9 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 	Body rb(entity, mRegistry);
 
 	// Kütle ve eylemsizlik tensörü hesaplamaları (varsayılan: 1kg)
-	(void)rb.setMass(1.0f);
+	if (auto res = rb.setMass(1.0f); !res) {
+		// Varsayılan kütle ataması hatası
+	}
 
 	Matrix3x3 I = Matrix3x3::identity();
 	std::visit([&](const auto &s) {
@@ -101,7 +112,7 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 			float cylinderMass = (h / (h + (4.0f / 3.0f) * r));
 			float capMass = 1.0f - cylinderMass;
 			float ix = cylinderMass * ((1.0f / 12.0f) * h * h + (1.0f / 4.0f) * r * r) +
-					capMass * ((2.0f / 5.0f) * r * r + (1.0f / 2.0f) * h * r + (1.0f / 4.0f) * h * h);
+					capMass * ((2.0f / 5.0f) * r * r + (3.0f / 8.0f) * h * r + (1.0f / 4.0f) * h * h);
 			float iy = (1.0f / 2.0f) * cylinderMass * r * r + (2.0f / 5.0f) * capMass * r * r;
 			I[0].x = ix;
 			I[1].y = iy;
@@ -115,7 +126,9 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 		}
 	},
 			shape.getVariant());
-	(void)rb.setLocalInertiaTensor(I);
+	if (auto res = rb.setLocalInertiaTensor(I); !res) {
+		// Varsayılan eylemsizlik tensörü ataması hatası
+	}
 
 	return rb;
 }
@@ -155,11 +168,11 @@ void Simulator::step(float deltaTime) {
 	mAccumulator += deltaTime;
 
 	// Ölüm Spirali (Spiral of Death) Koruması:
-	// Tek bir karede en fazla 2 alt adım çalıştırılır. Aşırı gecikmeler birikip sonraki kareleri kitlemez.
-	int maxSubSteps = 2;
-	while (mAccumulator >= mFixedTimeStep && maxSubSteps > 0) {
+	// Tek bir karede en fazla mMaxSubSteps alt adım çalıştırılır. Aşırı gecikmeler birikip sonraki kareleri kitlemez.
+	int subStepsLeft = mMaxSubSteps;
+	while (mAccumulator >= mFixedTimeStep && subStepsLeft > 0) {
 		float dt = mFixedTimeStep;
-		maxSubSteps--;
+		subStepsLeft--;
 
 		// 1. Dinamik kuvvetleri hıza aktar
 		mIntegrator.integrateVelocities(dt);
@@ -186,9 +199,9 @@ void Simulator::step(float deltaTime) {
 		// 4. Etkileşim halindeki nesne gruplarını ayır
 		auto islands = mIslandSystem.step(mCollisionSystem.getManifolds(), dt);
 
-		// 5. Her nesne grubu için fiziksel tepkileri hesapla (10 hız, 4 pozisyon iterasyonu ideal dengedir)
-		for (const auto &island : islands) {
-			mSolver.execute(island, mCollisionSystem.getManifolds(), dt, 10, 4);
+		// 5. Her nesne grubu için fiziksel tepkileri hesapla
+		for (auto &island : islands) {
+			mSolver.execute(island, dt, mSettings.velocityIterations, mSettings.positionIterations);
 		}
 
 		// 6. Güncellenmiş hızları kullanarak konumları değiştir
@@ -204,7 +217,7 @@ void Simulator::step(float deltaTime) {
 	}
 
 	// Eğer kare çok uzadıysa birikintiyi sıfırla (gecikme zincirleme devam etmesin)
-	if (maxSubSteps == 0) {
+	if (subStepsLeft == 0) {
 		mAccumulator = 0.0f;
 	}
 }

@@ -56,15 +56,15 @@ struct Pose {
      * @param position Objenin dünyadaki konumu.
      * @param orientation Objenin baktığı yön.
      */
-    constexpr Pose(const Vector3& position, const Quaternion& orientation)
-        : position(position), orientation(orientation) {}
+    constexpr Pose(const Vector3& inPosition, const Quaternion& inOrientation)
+        : position(inPosition), orientation(inOrientation) {}
 
     /**
      * @brief Sadece pozisyon belirterek Pose oluşturur (Rotasyon sıfır kabul edilir).
-     * @param position Objenin dünyadaki konumu.
+     * @param inPosition Objenin dünyadaki konumu.
      */
-    constexpr explicit Pose(const Vector3& position)
-        : position(position), orientation(Quaternion::identity()) {}
+    constexpr explicit Pose(const Vector3& inPosition)
+        : position(inPosition), orientation(Quaternion::identity()) {}
 
     /// @}
 

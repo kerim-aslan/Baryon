@@ -20,6 +20,8 @@
 
 #include "Baryon/Core/Registry.hpp"
 #include "Baryon/collision/ContactManifold.hpp"
+#include "Baryon/collision/DistanceConstraint.hpp"
+#include "Baryon/collision/RevoluteConstraint.hpp"
 #include <vector>
 #include <unordered_map>
 
@@ -33,12 +35,53 @@
 namespace Baryon::systems {
 
 /**
+ * @struct Island
+ * @brief Birbirine temas eden veya kısıtlarla bağlı nesnelerin ve manifoldların bağımsız çözüm grubu.
+ */
+struct Island {
+    std::vector<ecs::Entity> bodies;
+    std::vector<collision::ContactManifold*> manifolds;
+    std::vector<collision::DistanceConstraint*> distanceConstraints;
+    std::vector<collision::RevoluteConstraint*> revoluteConstraints;
+};
+
+/**
  * @class IslandSystem
  * @brief Nesne gruplandırma, çözücü dağıtımı ve enerji tasarrufu sistemi.
  */
 class IslandSystem {
 private:
     Core::Registry& mRegistry; ///< ECS kayıt defteri referansı.
+    float mSleepLinearThresholdSq{0.0025f};
+    float mSleepAngularThresholdSq{0.0025f};
+    float mTimeToSleep{0.5f};
+
+    // D3: Yeniden kullanılan kalıcı tamponlar (Her adımda yığın tahsisini engeller)
+    std::unordered_map<uint32_t, std::vector<ecs::Entity>> mAdjList;
+    std::unordered_map<uint32_t, size_t> mEntityToIsland;
+    std::vector<Island> mActiveIslands;
+
+    void buildAdjacencyList(
+        const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
+        std::unordered_map<uint32_t, std::vector<ecs::Entity>>& adjList);
+
+    void findIslandsBFS(
+        const std::unordered_map<uint32_t, std::vector<ecs::Entity>>& adjList,
+        float deltaTime,
+        std::vector<Island>& activeIslands,
+        std::unordered_map<uint32_t, size_t>& entityToIsland);
+
+    void processIslandSleep(
+        std::vector<ecs::Entity>& islandBodies,
+        bool canSleep,
+        float deltaTime,
+        std::vector<Island>& activeIslands,
+        std::unordered_map<uint32_t, size_t>& entityToIsland);
+
+    void assignManifoldsAndConstraints(
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
+        const std::unordered_map<uint32_t, size_t>& entityToIsland,
+        std::vector<Island>& activeIslands);
 
 public:
     /** 
@@ -48,20 +91,29 @@ public:
     explicit IslandSystem(Core::Registry& registry);
 
     /**
-     * @brief Nesneleri gruplara ayırır ve uyku durumlarını kontrol eder.
-     * @details 
-     * 1. Temas halindeki tüm nesneleri analiz ederek bir bağlantı haritası çıkarır.
-     * 2. Birbirine değen nesneleri "ada" adı verilen bağımsız gruplara atar.
-     * 3. Her adayı kendi içinde fizik çözücüsüne (solver) gönderir.
-     * 4. Enerji Tasarrufu: Bir adadaki tüm nesneler durma noktasına gelirse, 
-     *    ada tamamen uyutulur ve tekrar hareket edene kadar hesaplanmaz.
-     * 
+     * @brief Adaların uykuya geçiş eşiklerini ayarlar.
+     * @param linearVelThreshold Uykuya geçiş için maksimum çizgisel hız (m/s).
+     * @param angularVelThreshold Uykuya geçiş için maksimum açısal hız (rad/s).
+     * @param timeToSleep Bu hızların altında kalınması gereken süre (saniye).
+     */
+    void setSleepThresholds(float linearVelThreshold, float angularVelThreshold, float timeToSleep = 0.5f) {
+        mSleepLinearThresholdSq = linearVelThreshold * linearVelThreshold;
+        mSleepAngularThresholdSq = angularVelThreshold * angularVelThreshold;
+        mTimeToSleep = timeToSleep;
+    }
+
+    [[nodiscard]] float getSleepLinearThresholdSq() const { return mSleepLinearThresholdSq; }
+    [[nodiscard]] float getSleepAngularThresholdSq() const { return mSleepAngularThresholdSq; }
+    [[nodiscard]] float getTimeToSleep() const { return mTimeToSleep; }
+
+    /**
+     * @brief Nesneleri gruplara ayırır, manifold/kısıtları adalara bağlar ve uyku durumlarını kontrol eder.
      * @param manifolds Mevcut aktif temas verileri.
      * @param deltaTime Geçen zaman adımı.
-     * @return Tespit edilen ve işlenen adaların (nesne gruplarının) listesi.
+     * @return Çözücüye gönderilecek olan aktif (uyumayan) adaların listesi.
      */
-    std::vector<std::vector<ecs::Entity>> step(
-        const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
+    std::vector<Island> step(
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
         float deltaTime);
 };
 

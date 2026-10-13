@@ -38,10 +38,14 @@ namespace Baryon::collision {
 /**
  * @struct CollisionInfo
  * @brief Kesin çarpışma testinin sonucunu tutan yapı.
+ * @note Normal Sözleşmesi: Çözücüde manifold normali B'den A'ya (B -> A) bakar
+ *       (relVel = vA - vB, normalVel = relVel · n).
+ *       EPA algoritması Minkowski farkı (A - B) üzerinden A -> B dış normalini döndürür;
+ *       çözücü sözleşmesine (B -> A) uyum için normal tersine (-normal) çevrilmelidir.
  */
 struct CollisionInfo {
     bool hasCollision{false}; ///< Çarpışma gerçekleşti mi?
-    Vector3 normal;           ///< Çarpışma yüzeyinin normali (ayrılma yönü). B'den A'ya doğru bakar.
+    Vector3 normal;           ///< Çarpışma yüzeyinin normali. Çözücü sözleşmesi: B'den A'ya bakar.
     float penetration{0};     ///< İki cismin birbirine ne kadar iç içe geçtiği (metre cinsinden).
     Vector3 contactPoint;     ///< Dünya koordinatlarında çarpışmanın gerçekleştiği temas noktası.
 };

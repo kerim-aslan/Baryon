@@ -21,6 +21,10 @@
 #include "Baryon/Core/Registry.hpp"
 #include "SpatialPartitioning.hpp"
 #include "Baryon/collision/ContactManifold.hpp"
+#include "Baryon/collision/ManifoldCache.hpp"
+#include "Baryon/collision/ContactEvents.hpp"
+#include "Baryon/math/Pose.hpp"
+#include "Baryon/ecs/ColliderComponents.hpp"
 #include <unordered_map>
 
 /**
@@ -48,11 +52,57 @@ private:
     CollisionListener* mListener{nullptr};       ///< Çarpışma ve tetikleyici olaylarını dinleyen kullanıcı sınıfı.
 
     /**
-     * @brief Aktif temas bilgilerini (manifold) tutan harita.
-     * @details Çarpışan her bir cisim çifti için oluşturulan temas verileri, 
-     *          benzersiz bir anahtar ile burada saklanır ve kareler boyunca güncellenir.
+     * @brief Aktif temas bilgilerini (manifold) tutan ve warm-starting eşleştirmesini sağlayan önbellek.
      */
-    std::unordered_map<uint64_t, collision::ContactManifold> mManifoldMap;
+    collision::ManifoldCache mCache;
+
+    /// @brief Uyuyan bir varlığı gerekirse uyandırır.
+    void wakeIfSleeping(ecs::Entity e);
+
+    /// @brief Statik mesh ile konveks şekil arasındaki çarpışmayı işler.
+    void processMeshCollision(
+        ecs::Entity entityA, ecs::Entity entityB,
+        const Pose& transA, const Pose& transB,
+        const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+        bool isMeshB,
+        const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifolds);
+
+    /// @brief İki kutu (Box-Box) arasındaki SAT tabanlı çarpışmayı işler.
+    void processBoxBoxCollision(
+        ecs::Entity entityA, ecs::Entity entityB,
+        const Pose& transA, const Pose& transB,
+        const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+        const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifolds);
+
+    /// @brief Genel konveks şekiller arasındaki (Sphere-Sphere, Sphere-Box, GJK/EPA) çarpışmayı işler.
+    void processGeneralCollision(
+        ecs::Entity entityA, ecs::Entity entityB,
+        const Pose& transA, const Pose& transB,
+        const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+        const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifolds);
+
+    struct CCDHit {
+        bool hasCollision{false};
+        float timeOfImpact{0.0f};
+        Vector3 collisionNormal{0.0f, 0.0f, 0.0f};
+        ecs::Entity hitEntity{0};
+    };
+
+    CCDHit findEarliestTOI(
+        ecs::Entity entity,
+        const Pose &transform,
+        const Core::Motion &motion,
+        const ecs::ColliderData &colliderA,
+        float radiusA,
+        float deltaTime);
+
+    void resolveCCDImpact(
+        ecs::Entity entity,
+        Pose &transform,
+        Core::Motion &motion,
+        const CCDHit &hit,
+        float speed,
+        float deltaTime);
 
 public:
     /**
@@ -87,8 +137,11 @@ public:
     /** 
      * @brief Mevcut aktif temas manifold'larına erişim sağlar. 
      */
-    [[nodiscard]] const auto& getManifolds() const { return mManifoldMap; }
-    [[nodiscard]] auto& getManifolds() { return mManifoldMap; }
+    [[nodiscard]] const auto& getManifolds() const { return mCache.getCurrent(); }
+    [[nodiscard]] auto& getManifolds() { return mCache.getCurrent(); }
+
+    [[nodiscard]] const collision::ManifoldCache& getCache() const { return mCache; }
+    [[nodiscard]] collision::ManifoldCache& getCache() { return mCache; }
 
     void setListener(CollisionListener* listener) { mListener = listener; }
 };
