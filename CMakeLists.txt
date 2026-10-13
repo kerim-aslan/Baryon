@@ -22,6 +22,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # CMake'in MSYS2 Clang ile uyumsuz olan C++20 Module taramasını devre dışı bırakıyoruz.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+add_compile_options(-Wshadow)
 # Sanitizer
 if(NOT WIN32)
   add_compile_options($<$<CONFIG:Debug>:-fsanitize=address,leak,undefined>)
@@ -47,14 +48,27 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/gdextension")
 endif()
 
 # 3. Otomatik Dogrulama Testleri
+enable_testing()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TunnelingTest.cpp")
     add_executable(TunnelingTest tests/TunnelingTest.cpp)
     target_link_libraries(TunnelingTest PRIVATE Baryon::BaryonStatic)
+    target_include_directories(TunnelingTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_test(NAME TunnelingTest COMMAND TunnelingTest)
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/FeatureVerificationTest.cpp")
     add_executable(FeatureVerificationTest tests/FeatureVerificationTest.cpp)
     target_link_libraries(FeatureVerificationTest PRIVATE Baryon::BaryonStatic)
+    target_include_directories(FeatureVerificationTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_test(NAME FeatureVerificationTest COMMAND FeatureVerificationTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RegressionTests.cpp")
+    add_executable(RegressionTests tests/RegressionTests.cpp)
+    target_link_libraries(RegressionTests PRIVATE Baryon::BaryonStatic)
+    target_include_directories(RegressionTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+    add_test(NAME RegressionTests COMMAND RegressionTests)
 endif()
 
 # 4. Baryon Görsel Teşhis ve Test Aracı (Baryon Visual Debugger & Testbed)

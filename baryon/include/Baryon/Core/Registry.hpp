@@ -51,16 +51,21 @@ private:
   ecs::EntityManager mEntityManager; ///< Varlıkların (entity) kimliklerini ve
                                      ///< yaşam döngüsünü yönetir.
 
-  /**
-   * @brief Motorun desteklediği tüm bileşenlerin tutulduğu veri depoları.
-   */
-  std::tuple<ecs::SparseSet<Pose>, ecs::SparseSet<Motion>,
-             ecs::SparseSet<MassProps>, ecs::SparseSet<Material>,
-             ecs::SparseSet<BodyState>, ecs::SparseSet<Linkage>,
-             ecs::SparseSet<ecs::ColliderData>,
-             ecs::SparseSet<collision::DistanceConstraint>,
-             ecs::SparseSet<collision::RevoluteConstraint>>
-      mComponents;
+  template<typename Tuple>
+  struct ComponentPoolsFromTypeList;
+
+  template<typename... Comps>
+  struct ComponentPoolsFromTypeList<std::tuple<Comps...>> {
+      using type = std::tuple<ecs::SparseSet<Comps>...>;
+  };
+
+  using ComponentPoolsTuple = typename ComponentPoolsFromTypeList<ComponentTypeList>::type;
+  ComponentPoolsTuple mComponents;
+
+  template<typename... Comps>
+  static auto makeComponentPools(memory::MemoryManager &mm, std::type_identity<std::tuple<Comps...>>) {
+      return std::make_tuple(ecs::SparseSet<Comps>(mm)...);
+  }
 
 public:
   /**
@@ -69,12 +74,7 @@ public:
    */
   explicit Registry(memory::MemoryManager &mm)
       : mEntityManager(mm),
-        mComponents(ecs::SparseSet<Pose>(mm), ecs::SparseSet<Motion>(mm),
-                    ecs::SparseSet<MassProps>(mm), ecs::SparseSet<Material>(mm),
-                    ecs::SparseSet<BodyState>(mm), ecs::SparseSet<Linkage>(mm),
-                    ecs::SparseSet<ecs::ColliderData>(mm),
-                    ecs::SparseSet<collision::DistanceConstraint>(mm),
-                    ecs::SparseSet<collision::RevoluteConstraint>(mm)) {}
+        mComponents(makeComponentPools(mm, std::type_identity<ComponentTypeList>{})) {}
 
   /// @name Varlık (Entity) Yönetimi
   /// @{
@@ -89,20 +89,14 @@ public:
 
   /**
    * @brief Bir varlığı ve ona bağlı olan tüm bileşenleri sistemden tamamen
-   * siler.
+   * siler (B1: Tek merkezli bileşen listesinden fold expression ile temizlenir).
    * @param entity Yok edilecek varlık.
    */
   void destroyEntity(ecs::Entity entity) {
     if (mEntityManager.isAlive(entity)) {
-      removeIfExists<Pose>(entity);
-      removeIfExists<Motion>(entity);
-      removeIfExists<MassProps>(entity);
-      removeIfExists<Material>(entity);
-      removeIfExists<BodyState>(entity);
-      removeIfExists<Linkage>(entity);
-      removeIfExists<ecs::ColliderData>(entity);
-      removeIfExists<collision::DistanceConstraint>(entity);
-      removeIfExists<collision::RevoluteConstraint>(entity);
+      [&]<typename... Comps>(std::type_identity<std::tuple<Comps...>>) {
+        (removeIfExists<Comps>(entity), ...);
+      }(std::type_identity<ComponentTypeList>{});
 
       mEntityManager.destroyEntity(entity);
     }
@@ -124,7 +118,7 @@ public:
   /// @{
 
   /**
-   * @brief Sahnenin o anki tam durumunu kopyalar ve kaydeder.
+   * @brief Sahnenin o anki tam durumunu kopyalar ve kaydeder (B1: Variadic fold expression).
    * @details Geri sarma (rewind), tekrar oynatma veya oyun kaydetme
    * mekanizmaları için kullanılır.
    * @return Kaydedilmiş sahne durumu (Snapshot).
@@ -132,41 +126,23 @@ public:
   [[nodiscard]] Snapshot save() const {
     Snapshot snap;
     snap.entityManagerState = mEntityManager.save();
-    snap.poses = std::get<ecs::SparseSet<Pose>>(mComponents).save();
-    snap.motions = std::get<ecs::SparseSet<Motion>>(mComponents).save();
-    snap.massProps = std::get<ecs::SparseSet<MassProps>>(mComponents).save();
-    snap.materials = std::get<ecs::SparseSet<Material>>(mComponents).save();
-    snap.bodyStates = std::get<ecs::SparseSet<BodyState>>(mComponents).save();
-    snap.linkages = std::get<ecs::SparseSet<Linkage>>(mComponents).save();
-    snap.colliders =
-        std::get<ecs::SparseSet<ecs::ColliderData>>(mComponents).save();
-    snap.distanceConstraints =
-        std::get<ecs::SparseSet<collision::DistanceConstraint>>(mComponents)
-            .save();
-    snap.revoluteConstraints =
-        std::get<ecs::SparseSet<collision::RevoluteConstraint>>(mComponents)
-            .save();
+    [&]<typename... Comps>(std::type_identity<std::tuple<Comps...>>) {
+      ((std::get<typename ecs::SparseSet<Comps>::State>(snap.componentStates) =
+          std::get<ecs::SparseSet<Comps>>(mComponents).save()), ...);
+    }(std::type_identity<ComponentTypeList>{});
     return snap;
   }
 
   /**
-   * @brief Daha önceden kaydedilmiş bir durumu (Snapshot) ECS'ye geri yükler.
+   * @brief Daha önceden kaydedilmiş bir durumu (Snapshot) ECS'ye geri yükler (B1: Variadic fold expression).
    * @param snap Yüklenecek sahne durumu.
    */
   void load(const Snapshot &snap) {
     mEntityManager.load(snap.entityManagerState);
-    std::get<ecs::SparseSet<Pose>>(mComponents).load(snap.poses);
-    std::get<ecs::SparseSet<Motion>>(mComponents).load(snap.motions);
-    std::get<ecs::SparseSet<MassProps>>(mComponents).load(snap.massProps);
-    std::get<ecs::SparseSet<Material>>(mComponents).load(snap.materials);
-    std::get<ecs::SparseSet<BodyState>>(mComponents).load(snap.bodyStates);
-    std::get<ecs::SparseSet<Linkage>>(mComponents).load(snap.linkages);
-    std::get<ecs::SparseSet<ecs::ColliderData>>(mComponents)
-        .load(snap.colliders);
-    std::get<ecs::SparseSet<collision::DistanceConstraint>>(mComponents)
-        .load(snap.distanceConstraints);
-    std::get<ecs::SparseSet<collision::RevoluteConstraint>>(mComponents)
-        .load(snap.revoluteConstraints);
+    [&]<typename... Comps>(std::type_identity<std::tuple<Comps...>>) {
+      (std::get<ecs::SparseSet<Comps>>(mComponents).load(
+          std::get<typename ecs::SparseSet<Comps>::State>(snap.componentStates)), ...);
+    }(std::type_identity<ComponentTypeList>{});
   }
 
   /// @}

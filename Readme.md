@@ -128,4 +128,4 @@ int main() {
 
 ## 📜 Lisans
 
-Bu proje **GNU General Public License v3.0 (GPLv3)** ile lisanslanmıştır. Detaylar için [LICENCE](LICENCE) dosyasına bakabilirsiniz.
+Bu proje **GNU General Public License v3.0 (GPLv3)** ile lisanslanmıştır. Detaylar için [LICENSE](LICENSE) dosyasına bakabilirsiniz.

@@ -26,6 +26,7 @@
  */
 
 #include "Baryon/collision/NarrowPhase.hpp"
+#include "Baryon/collision/PhysicsConstants.hpp"
 #include "Baryon/Core/DebugManager.hpp"
 #include <algorithm>
 #include <cmath>
@@ -499,8 +500,11 @@ Vector3 NarrowPhase::getSupportPoint(const CollisionShape &shape,
 
         if constexpr (std::is_same_v<T, SphereShape>) {
           Vector3 dirNorm = direction;
-          if (dirNorm.lengthSquare() > 0.0001f)
+          if (dirNorm.lengthSquare() > 1e-12f) {
             dirNorm.normalize();
+          } else {
+            dirNorm = Vector3(0.0f, 1.0f, 0.0f);
+          }
           return transform.position + (dirNorm * arg.radius);
         } else if constexpr (std::is_same_v<T, BoxShape>) {
           Quaternion invRot = transform.orientation.getConjugate();
@@ -521,7 +525,13 @@ Vector3 NarrowPhase::getSupportPoint(const CollisionShape &shape,
           Vector3 bottom(0, -halfH, 0);
           Vector3 point =
               (localDir.dot(top) > localDir.dot(bottom)) ? top : bottom;
-          Vector3 localResult = point + (localDir.getNormalized() * arg.radius);
+          Vector3 dirNorm = localDir;
+          if (dirNorm.lengthSquare() > 1e-12f) {
+            dirNorm.normalize();
+          } else {
+            dirNorm = Vector3(0.0f, 1.0f, 0.0f);
+          }
+          Vector3 localResult = point + (dirNorm * arg.radius);
           return transform.position + (transform.orientation * localResult);
         } else if constexpr (std::is_same_v<T, ConvexHullShape>) {
           if (arg.vertices.empty())
@@ -1048,7 +1058,7 @@ bool NarrowPhase::GJK(const CollisionShape &shapeA, const Pose &transformA,
                       const CollisionShape &shapeB, const Pose &transformB,
                       Simplex &outSimplex) {
   Vector3 direction = transformB.position - transformA.position;
-  if (direction.lengthSquare() < 0.0001f)
+  if (direction.lengthSquare() < physics::PhysicsConstants::DegenerateVectorThresholdSq)
     direction = Vector3(1.0f, 0.0f, 0.0f);
 
   outSimplex = Simplex();
@@ -1154,6 +1164,14 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
                                const Pose &transformA,
                                const CollisionShape &shapeB,
                                const Pose &transformB) {
+  CollisionInfo noCollision;
+  noCollision.hasCollision = false;
+
+  // EPA en az 4 noktalı (dörtyüzlü) bir simpleks gerektirir
+  if (simplex.size() < 4) {
+    return noCollision;
+  }
+
   thread_local std::vector<EPAVertex> vertices;
   thread_local std::vector<EPAFace> faces;
   thread_local std::vector<std::pair<size_t, size_t>> edges;
@@ -1175,9 +1193,14 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
   auto getFace = [&](size_t i1, size_t i2, size_t i3) {
     Vector3 v1 = vertices[i1].minkowskiPoint, v2 = vertices[i2].minkowskiPoint,
             v3 = vertices[i3].minkowskiPoint;
-    Vector3 n = (v2 - v1).cross(v3 - v1).getNormalized();
+    Vector3 crossProd = (v2 - v1).cross(v3 - v1);
+    float lenSq = crossProd.lengthSquare();
+    if (lenSq < 1e-12f) {
+      return EPAFace{i1, i2, i3, Vector3(0, 0, 0), -1.0f};
+    }
+    Vector3 n = crossProd.getNormalized();
     float d = n.dot(v1);
-    if (d < 0) {
+    if (d < 0.0f) {
       n = -n;
       d = -d;
       std::swap(i1, i2);
@@ -1185,36 +1208,60 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
     return EPAFace{i1, i2, i3, n, d};
   };
 
-  faces.push_back(getFace(0, 1, 2));
-  faces.push_back(getFace(0, 2, 3));
-  faces.push_back(getFace(0, 3, 1));
-  faces.push_back(getFace(1, 3, 2));
+  EPAFace f0 = getFace(0, 1, 2);
+  EPAFace f1 = getFace(0, 2, 3);
+  EPAFace f2 = getFace(0, 3, 1);
+  EPAFace f3 = getFace(1, 3, 2);
 
-  EPAFace closestFace;
+  if (f0.distance < 0.0f || f1.distance < 0.0f || f2.distance < 0.0f || f3.distance < 0.0f) {
+    return noCollision;
+  }
+
+  faces.push_back(f0);
+  faces.push_back(f1);
+  faces.push_back(f2);
+  faces.push_back(f3);
+
+  EPAFace closestFace{};
+  closestFace.distance = physics::PhysicsConstants::InfinityDistance;
+
   for (int iter = 0; iter < 32; ++iter) {
-    float minDistance = 1e10f;
+    if (faces.empty())
+      break;
+
+    float minDistance = physics::PhysicsConstants::InfinityDistance;
     size_t closestFaceIndex = 0;
+    bool foundValid = false;
     for (size_t i = 0; i < faces.size(); ++i) {
-      if (faces[i].distance < minDistance) {
+      if (faces[i].distance >= 0.0f && faces[i].distance < minDistance) {
         minDistance = faces[i].distance;
         closestFaceIndex = i;
+        foundValid = true;
       }
     }
+    if (!foundValid)
+      break;
+
     closestFace = faces[closestFaceIndex];
     Vector3 searchDir = closestFace.normal;
+    if (searchDir.lengthSquare() < 0.5f)
+      break;
+
     Vector3 pA = getSupportPoint(shapeA, transformA, searchDir);
     Vector3 p = pA - getSupportPoint(shapeB, transformB, searchDir * -1.0f);
 
-    if (p.dot(searchDir) - closestFace.distance < 0.001f)
+    if (p.dot(searchDir) - closestFace.distance < 0.001f) {
       break;
+    }
 
     vertices.push_back({p, pA});
     size_t newVIdx = vertices.size() - 1;
     edges.clear();
     auto addEdge = [&](size_t a, size_t b) {
-      for (auto it = edges.begin(); it != edges.end(); ++it) {
-        if (it->first == b && it->second == a) {
-          edges.erase(it);
+      for (size_t e = 0; e < edges.size(); ++e) {
+        if (edges[e].first == b && edges[e].second == a) {
+          edges[e] = edges.back();
+          edges.pop_back();
           return;
         }
       }
@@ -1222,16 +1269,27 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
     };
 
     for (size_t i = 0; i < faces.size();) {
-      if (faces[i].normal.dot(p - vertices[faces[i].v1].minkowskiPoint) > 0) {
+      if (faces[i].normal.dot(p - vertices[faces[i].v1].minkowskiPoint) > 0.0f) {
         addEdge(faces[i].v1, faces[i].v2);
         addEdge(faces[i].v2, faces[i].v3);
         addEdge(faces[i].v3, faces[i].v1);
-        faces.erase(faces.begin() + i);
-      } else
+        faces[i] = faces.back();
+        faces.pop_back();
+      } else {
         i++;
+      }
     }
-    for (auto &edge : edges)
-      faces.push_back(getFace(edge.first, edge.second, newVIdx));
+
+    for (auto &edge : edges) {
+      EPAFace newFace = getFace(edge.first, edge.second, newVIdx);
+      if (newFace.distance >= 0.0f && newFace.normal.lengthSquare() > 0.5f) {
+        faces.push_back(newFace);
+      }
+    }
+  }
+
+  if (faces.empty() || closestFace.distance >= 1e9f || closestFace.normal.lengthSquare() < 0.5f) {
+    return noCollision;
   }
 
   CollisionInfo info;
@@ -1249,7 +1307,8 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
   float areaSq = faceNormal.lengthSquare();
   Vector3 pOnFace = closestFace.normal * closestFace.distance;
 
-  float w1 = 0.0f, w2 = 0.0f, w3 = 0.0f;
+  float w1 = 0.0f, w2 = 0.0f;
+  [[maybe_unused]] float w3 = 0.0f;
   if (areaSq > 1e-12f) {
     w1 = faceNormal.dot((v2 - pOnFace).cross(v3 - pOnFace)) / areaSq;
     w2 = faceNormal.dot((v3 - pOnFace).cross(v1 - pOnFace)) / areaSq;
@@ -1260,9 +1319,7 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
     w3 = 0.3334f;
   }
 
-  info.contactPoint = (vertices[closestFace.v1].supportA * w1) +
-                      (vertices[closestFace.v2].supportA * w2) +
-                      (vertices[closestFace.v3].supportA * w3);
+  info.contactPoint = getSupportPoint(shapeA, transformA, closestFace.normal);
   return info;
 }
 

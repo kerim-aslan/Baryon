@@ -26,6 +26,11 @@
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 
+#include "Baryon/collision/ContactManifold.hpp"
+#include <unordered_map>
+#include <tuple>
+#include <utility>
+
 /**
  * @file Snapshot.hpp
  * @brief Fizik motorunun o anki tam durumunu kaydeden Anlık Görüntü (Snapshot) yapısı.
@@ -36,23 +41,52 @@
 namespace Baryon::Core {
 
 /**
+ * @brief Tek bir merkezden yönetilen tüm bileşen tipleri listesi (B1).
+ * Yeni bileşen eklemek için sadece bu listeye ekleme yapmak yeterlidir.
+ */
+using ComponentTypeList = std::tuple<
+    Pose,
+    Motion,
+    MassProps,
+    Material,
+    BodyState,
+    Linkage,
+    ecs::ColliderData,
+    collision::DistanceConstraint,
+    collision::RevoluteConstraint
+>;
+
+template<typename Tuple>
+struct ComponentStatesFromTypeList;
+
+template<typename... Comps>
+struct ComponentStatesFromTypeList<std::tuple<Comps...>> {
+    using type = std::tuple<typename ecs::SparseSet<Comps>::State...>;
+};
+
+using ComponentStatesTuple = typename ComponentStatesFromTypeList<ComponentTypeList>::type;
+
+/**
  * @struct Snapshot
- * @brief Fizik dünyasındaki tüm varlıkların ve onlara ait bileşenlerin o anki kopyasını tutan veri yapısı.
- * @details Registry sınıfındaki save() fonksiyonu ile doldurulur ve load() fonksiyonu 
- *          ile sahneyi tam olarak bu kayıtlı anın durumuna geri döndürmek için kullanılır.
+ * @brief Fizik dünyasındaki tüm varlıkların, bileşenlerin ve simülasyon durumunun kopyası.
  */
 struct Snapshot {
-    ecs::EntityManager::State entityManagerState; ///< Varlıkların durumu (hangi varlıklar aktif, hangileri silindi).
-    
-    ecs::SparseSet<Pose>::State poses;                                      ///< Tüm cisimlerin konum ve dönüş (rotasyon) verileri.
-    ecs::SparseSet<Motion>::State motions;                                  ///< Tüm cisimlerin anlık hız ve uygulanan kuvvet verileri.
-    ecs::SparseSet<MassProps>::State massProps;                             ///< Kütle ve fiziksel dönüş direnci (eylemsizlik) verileri.
-    ecs::SparseSet<Material>::State materials;                              ///< Sürtünme ve sekme gibi yüzey materyal özellikleri.
-    ecs::SparseSet<BodyState>::State bodyStates;                            ///< Cisimlerin aktiflik, uyku ve genel fiziksel durumları.
-    ecs::SparseSet<Linkage>::State linkages;                                ///< Ebeveyn-çocuk (parent-child) hiyerarşi bağlantıları.
-    ecs::SparseSet<ecs::ColliderData>::State colliders;                     ///< Çarpışma şekilleri ve sınır kutularının (collider) verileri.
-    ecs::SparseSet<collision::DistanceConstraint>::State distanceConstraints; ///< Yay, ip veya halat gibi mesafe koruyucu eklemlerin verileri.
-    ecs::SparseSet<collision::RevoluteConstraint>::State revoluteConstraints; ///< Menteşe, tekerlek aksı gibi dönüş kısıtlayıcı eklemlerin verileri.
+    ecs::EntityManager::State entityManagerState; ///< Varlıkların durumu.
+    ComponentStatesTuple componentStates;         ///< Tüm bileşenlerin durumları (Variadic tuple - B1).
+
+    // B2: Determinizm ve geri sarma için simülatör durumları
+    float accumulator{0.0f};                      ///< Zaman adımı biriktiricisi.
+    std::unordered_map<uint64_t, collision::ContactManifold> manifolds; ///< Warm-start temas manifoldları.
+
+    template<typename T>
+    [[nodiscard]] const auto& getComponentState() const {
+        return std::get<typename ecs::SparseSet<T>::State>(componentStates);
+    }
+
+    template<typename T>
+    [[nodiscard]] auto& getComponentState() {
+        return std::get<typename ecs::SparseSet<T>::State>(componentStates);
+    }
 };
 
 } // namespace Baryon::Core

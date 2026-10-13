@@ -126,8 +126,11 @@ public:
    */
   [[nodiscard]] bool hasComponent(Entity entity) const {
     uint32_t entityIndex = EntityManager::getIndex(entity);
-    return entityIndex < mSparseMap.size() &&
-           mSparseMap[entityIndex] != INVALID_INDEX;
+    if (entityIndex >= mSparseMap.size())
+      return false;
+    uint32_t denseIndex = mSparseMap[entityIndex];
+    return denseIndex != INVALID_INDEX && denseIndex < mEntities.size() &&
+           mEntities[denseIndex] == entity;
   }
 
   /**

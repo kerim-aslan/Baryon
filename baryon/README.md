@@ -42,8 +42,8 @@ target_link_libraries(MyGameEngine PRIVATE Baryon::Baryon)
 #include <iostream>
 
 int main() {
-    // 1. Simülatörü başlat (Sabit zaman adımı: 60 FPS = 0.0166s)
-    Baryon::Simulator sim(1.0f / 60.0f);
+    // 1. Simülatörü başlat (Varsayılan ayarlar veya SimulationSettings ile)
+    Baryon::Simulator sim;
 
     // 2. Statik zemin oluştur (100x1x100 kutu)
     Baryon::Pose groundPose(Baryon::Vector3(0, -0.5f, 0));

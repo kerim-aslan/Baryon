@@ -41,6 +41,10 @@ target_include_directories(${TARGET_NAME}_static PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 set_target_properties(${TARGET_NAME}_static PROPERTIES OUTPUT_NAME "${TARGET_NAME}")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${TARGET_NAME}_static PRIVATE -Wall -Wextra -Wshadow -ffp-contract=off)
+    target_compile_options(${TARGET_NAME}_shared PRIVATE -Wall -Wextra -Wshadow -ffp-contract=off)
+endif()
 
 # Modern CMake Alias (Allows target_link_libraries(MyProject PRIVATE Baryon::Baryon))
 add_library(Baryon::Baryon ALIAS ${TARGET_NAME}_static)

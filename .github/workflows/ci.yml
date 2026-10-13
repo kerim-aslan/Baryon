@@ -1,0 +1,72 @@
+name: Baryon CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux GCC 13 (Release)
+            os: ubuntu-24.04
+            c_compiler: gcc-13
+            cpp_compiler: g++-13
+            build_type: Release
+            extra_cmake_flags: ""
+
+          - name: Linux GCC 13 (Debug + ASan + UBSan)
+            os: ubuntu-24.04
+            c_compiler: gcc-13
+            cpp_compiler: g++-13
+            build_type: Debug
+            extra_cmake_flags: "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
+
+          - name: Linux Clang 17 (Release)
+            os: ubuntu-24.04
+            c_compiler: clang-17
+            cpp_compiler: clang++-17
+            build_type: Release
+            extra_cmake_flags: ""
+
+          - name: Windows MSVC (Release)
+            os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+            build_type: Release
+            extra_cmake_flags: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Linux compilers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.c_compiler }}" = "gcc-13" ]; then
+            sudo apt-get install -y gcc-13 g++-13
+          elif [ "${{ matrix.c_compiler }}" = "clang-17" ]; then
+            sudo apt-get install -y clang-17 lld-17
+          fi
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DBARYON_BUILD_DEBUGGER=OFF
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          ${{ matrix.extra_cmake_flags }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} -j
+
+      - name: Test (CTest)
+        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure

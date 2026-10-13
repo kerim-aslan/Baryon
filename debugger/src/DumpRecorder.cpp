@@ -15,7 +15,7 @@ const DumpFrame& DumpRecorder::captureStep(const Simulator& sim, float dt) {
     frame.simulationTime = (mSimulationTime += dt);
     frame.timeStep = dt;
 
-    const auto& reg = const_cast<Simulator&>(sim).getRegistry();
+    const auto& reg = sim.getRegistry();
 
     // 1. Capture Entities
     {

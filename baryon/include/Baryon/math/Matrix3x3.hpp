@@ -148,6 +148,15 @@ struct Matrix3x3 {
                          rows[2].z * other[2].z);
   }
 
+  /**
+   * @brief Matrisi bir skaler ile çarpar.
+   * @param scalar Çarpılacak skaler değer.
+   * @return Ölçeklenmiş yeni matris.
+   */
+  [[nodiscard]] constexpr Matrix3x3 operator*(float scalar) const {
+    return Matrix3x3(rows[0] * scalar, rows[1] * scalar, rows[2] * scalar);
+  }
+
   /// @}
 
   /// @name Matris Dönüşüm Fonksiyonları

@@ -56,15 +56,15 @@ struct PhysicsConstants {
     
     /**
      * @brief Cismin uyku moduna geçmesi için gereken maksimum doğrusal hızın karesi.
-     * @details Hareketi durma noktasına gelen cisimleri uyutarak işlemci yükünü azaltır (~0.31 m/s).
+     * @details Hareketi durma noktasına gelen cisimleri uyutarak işlemci yükünü azaltır (~0.05 m/s).
      */
-    static constexpr float SleepLinearThresholdSq = 0.1f; 
+    static constexpr float SleepLinearThresholdSq = 0.0025f; 
 
     /**
      * @brief Cismin uyku moduna geçmesi için gereken maksimum açısal hızın karesi.
-     * @details Dönme hareketi bitmek üzere olan cisimleri uyutmak için kullanılır (~0.2 rad/s).
+     * @details Dönme hareketi bitmek üzere olan cisimleri uyutmak için kullanılır (~0.05 rad/s).
      */
-    static constexpr float SleepAngularThresholdSq = 0.04f;
+    static constexpr float SleepAngularThresholdSq = 0.0025f;
 
     /**
      * @brief Mikro hareketleri yok saymak için kullanılan ölü bölge (dead-zone) eşiği.
@@ -78,6 +78,43 @@ struct PhysicsConstants {
      *          durmuş cisimlerin kendi ağırlıklarıyla sonsuza kadar titreyerek zıplaması engellenir.
      */
     static constexpr float RestitutionVelocityThreshold = 1.0f;
+
+    // --- Dar Faz, Manifold ve Geometri Eşikleri ---
+
+    /**
+     * @brief İki temas normalinin aynı yüzeyi temsil ettiği kabulü için benzerlik eşiği (cos(~18 deg) = 0.95).
+     */
+    static constexpr float NormalSimilarityThreshold = 0.95f;
+
+    /**
+     * @brief Warm-start temas eşleştirmesi için karesel mesafe toleransı (~0.2m karesi).
+     */
+    static constexpr float WarmStartDistanceSqThreshold = 0.04f;
+
+    /**
+     * @brief Statik mesh üçgen sorgusu için minimum AABB arama yarıçapı (metre).
+     */
+    static constexpr float MinMeshQueryExtent = 3.0f;
+
+    /**
+     * @brief Yuvarlanma direnci katsayısı (Rolling resistance).
+     */
+    static constexpr float RollingResistanceCoefficient = 0.02f;
+
+    /**
+     * @brief Geniş faz AABB hız süpürmesi varsayılan zaman katsayısı (saniye).
+     */
+    static constexpr float DefaultVelocityExpansion = 0.02f;
+
+    /**
+     * @brief Bozulmuş veya sıfıra yakın yön vektörlerini tespit için karesel eşik.
+     */
+    static constexpr float DegenerateVectorThresholdSq = 0.0001f;
+
+    /**
+     * @brief Geometrik aramalarda sonsuz uzaklık / sınır değeri olarak kullanılan büyük sayı.
+     */
+    static constexpr float InfinityDistance = 1e10f;
 };
 
 } // namespace Baryon::physics

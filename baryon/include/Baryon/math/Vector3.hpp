@@ -53,7 +53,7 @@ struct Vector3 {
    * @brief Parametreli kurucu.
    * @param x X bileşeni, @param y Y bileşeni, @param z Z bileşeni.
    */
-  constexpr Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
+  constexpr Vector3(float inX, float inY, float inZ) : x(inX), y(inY), z(inZ) {}
 
   /// @}
 
