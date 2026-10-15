@@ -145,7 +145,14 @@ public:
         return mNodes[nodeIndex].aabb;
     }
 
+    /**
+     * @brief updateLeaf çağrı sayısını döndürür ve sıfırlar (Teşhis ve testler için).
+     */
+    [[nodiscard]] uint64_t getUpdateLeafCallCount() const { return mUpdateLeafCalls; }
+    void resetUpdateLeafCallCount() const { mUpdateLeafCalls = 0; }
+
 private:
+    mutable uint64_t mUpdateLeafCalls{0};           ///< updateLeaf çağrı sayacı.
     int32_t allocateNode();                         ///< Yeni bir düğüm belleği tahsis eder (free list veya yeni).
     void freeNode(int32_t nodeIndex);               ///< Kullanılmayan düğümü geri dönüşüm listesine ekler.
     void insertLeafIntoTree(int32_t leafNodeIndex); ///< Düğümü en az maliyetle ağaca bağlar.

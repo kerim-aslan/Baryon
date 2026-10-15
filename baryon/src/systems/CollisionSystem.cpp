@@ -29,6 +29,7 @@
 #include "Baryon/collision/NarrowPhase.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
 #include "Baryon/collision/CollisionListener.hpp"
+#include <iostream>
 #include <algorithm>
 
 namespace Baryon::systems {
@@ -124,7 +125,7 @@ void CollisionSystem::step() {
       collision::AABB localConvAABB = collConv.shape.computeLocalAABB();
       float convRadius =
           (localConvAABB.maxBounds - localConvAABB.minBounds).length() * 0.5f;
-      float queryExtent = std::max(3.0f, convRadius + 1.0f);
+      float queryExtent = std::max(physics::PhysicsConstants::DefaultMeshQueryExtent, convRadius + 1.0f);
       Vector3 localPos = transMesh.orientation.getConjugate() *
                          (transConv.position - transMesh.position);
       collision::AABB queryAABB(
@@ -144,8 +145,10 @@ void CollisionSystem::step() {
                   transMesh);
 
               if (info.hasCollision) {
-                if (info.penetration >
-                    physics::PhysicsConstants::LinearSlop * 2.0f) {
+                bool awakeConv = mRegistry.hasComponent<Core::BodyState>(entConv) && !mRegistry.getComponent<Core::BodyState>(entConv).isSleeping;
+                bool awakeMesh = mRegistry.hasComponent<Core::BodyState>(entMesh) && !mRegistry.getComponent<Core::BodyState>(entMesh).isSleeping;
+                if ((awakeConv && !awakeMesh) || (awakeMesh && !awakeConv) ||
+                    info.penetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
                   wakeIfSleeping(entConv);
                   wakeIfSleeping(entMesh);
                 }
@@ -161,11 +164,10 @@ void CollisionSystem::step() {
                 auto [it, inserted] =
                     mManifoldMap.try_emplace(key, entConv, entMesh);
                 it->second.isTriggerPair = collConv.isTrigger || collMesh.isTrigger;
-                Vector3 currentNormal =
-                    isMeshB ? info.normal : info.normal * -1.0f;
+                Vector3 currentNormal = -info.normal; // Normal sozlesmesi: B'den A'ya (mesh'ten convex'e)
 
                 if (!inserted && it->second.contactCount > 0 &&
-                    it->second.normal.dot(currentNormal) < 0.95f) {
+                    it->second.normal.dot(currentNormal) < physics::PhysicsConstants::ManifoldNormalAlignmentThreshold) {
                   it->second.contactCount = 0;
                 }
 
@@ -176,45 +178,176 @@ void CollisionSystem::step() {
                   it->second.computeTangents();
                 }
 
-                collision::ContactPoint cp;
-                cp.worldPosition = info.contactPoint;
-                cp.localPointA = transConv.orientation.getConjugate() *
-                                 (cp.worldPosition - transConv.position);
-                cp.localPointB = transMesh.orientation.getConjugate() *
-                                 (cp.worldPosition - transMesh.position);
-                cp.penetration = info.penetration;
-                cp.normalImpulse = 0.0f;
-                cp.tangentImpulse1 = 0.0f;
-                cp.tangentImpulse2 = 0.0f;
-                cp.splitImpulse = 0.0f;
+                bool isMeshBox = std::holds_alternative<collision::BoxShape>(collConv.shape.getVariant());
+                bool isMeshHull = std::holds_alternative<collision::ConvexHullShape>(collConv.shape.getVariant());
+                bool isMeshCap = std::holds_alternative<collision::CapsuleShape>(collConv.shape.getVariant());
 
                 auto oldIt = oldManifoldMap.find(key);
-                if (oldIt != oldManifoldMap.end()) {
-                  int bestMatch = -1;
-                  float closestDistSq = 0.04f;
-                  for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
-                    float distSq =
-                        (oldIt->second.contacts[j].localPointA - cp.localPointA)
-                            .lengthSquare();
-                    if (distSq < closestDistSq) {
-                      closestDistSq = distSq;
-                      bestMatch = j;
+
+                if (isMeshBox) {
+                  const auto &box = std::get<collision::BoxShape>(collConv.shape.getVariant());
+                  Vector3 h = box.halfExtents;
+                  std::array<Vector3, 8> localVerts = {
+                      Vector3(-h.x, -h.y, -h.z), Vector3(h.x, -h.y, -h.z),
+                      Vector3(h.x,  h.y, -h.z), Vector3(-h.x,  h.y, -h.z),
+                      Vector3(-h.x, -h.y,  h.z), Vector3(h.x, -h.y,  h.z),
+                      Vector3(h.x,  h.y,  h.z), Vector3(-h.x,  h.y,  h.z)
+                  };
+                  Vector3 searchDir = -currentNormal;
+                  float maxProj = -physics::PhysicsConstants::Infinity;
+                  for (const auto &v : localVerts) {
+                    Vector3 wP = transConv.position + (transConv.orientation * v);
+                    float p = wP.dot(searchDir);
+                    if (p > maxProj) maxProj = p;
+                  }
+                  for (const auto &v : localVerts) {
+                    Vector3 wP = transConv.position + (transConv.orientation * v);
+                    if (wP.dot(searchDir) >= maxProj - 0.005f && it->second.contactCount < 4) {
+                      collision::ContactPoint faceCp;
+                      faceCp.worldPosition = wP;
+                      faceCp.localPointA = v;
+                      faceCp.localPointB = transMesh.orientation.getConjugate() * (faceCp.worldPosition - transMesh.position);
+                      faceCp.penetration = info.penetration;
+                      faceCp.normalImpulse = 0.0f;
+                      faceCp.tangentImpulse1 = 0.0f;
+                      faceCp.tangentImpulse2 = 0.0f;
+                      faceCp.splitImpulse = 0.0f;
+
+                      if (oldIt != oldManifoldMap.end()) {
+                        int bestMatch = -1;
+                        float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                        for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                          float distSq = (oldIt->second.contacts[j].localPointA - faceCp.localPointA).lengthSquare();
+                          if (distSq < closestDistSq) { closestDistSq = distSq; bestMatch = static_cast<int>(j); }
+                        }
+                        if (bestMatch != -1) {
+                          faceCp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
+                          faceCp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                          faceCp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
+                        }
+                      }
+                      it->second.addContact(faceCp);
                     }
                   }
-                  if (bestMatch != -1) {
-                    cp.normalImpulse =
-                        oldIt->second.contacts[bestMatch].normalImpulse;
-                    cp.tangentImpulse1 =
-                        oldIt->second.contacts[bestMatch].tangentImpulse1;
-                    cp.tangentImpulse2 =
-                        oldIt->second.contacts[bestMatch].tangentImpulse2;
+                } else if (isMeshHull) {
+                  const auto &hull = std::get<collision::ConvexHullShape>(collConv.shape.getVariant());
+                  Vector3 searchDir = -currentNormal;
+                  float maxProj = -physics::PhysicsConstants::Infinity;
+                  for (const auto &v : hull.vertices) {
+                    Vector3 wP = transConv.position + (transConv.orientation * v);
+                    float p = wP.dot(searchDir);
+                    if (p > maxProj) maxProj = p;
+                  }
+                  for (const auto &v : hull.vertices) {
+                    Vector3 wP = transConv.position + (transConv.orientation * v);
+                    if (wP.dot(searchDir) >= maxProj - 0.005f && it->second.contactCount < 4) {
+                      collision::ContactPoint faceCp;
+                      faceCp.worldPosition = wP;
+                      faceCp.localPointA = v;
+                      faceCp.localPointB = transMesh.orientation.getConjugate() * (faceCp.worldPosition - transMesh.position);
+                      faceCp.penetration = info.penetration;
+                      faceCp.normalImpulse = 0.0f;
+                      faceCp.tangentImpulse1 = 0.0f;
+                      faceCp.tangentImpulse2 = 0.0f;
+                      faceCp.splitImpulse = 0.0f;
+
+                      if (oldIt != oldManifoldMap.end()) {
+                        int bestMatch = -1;
+                        float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                        for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                          float distSq = (oldIt->second.contacts[j].localPointA - faceCp.localPointA).lengthSquare();
+                          if (distSq < closestDistSq) { closestDistSq = distSq; bestMatch = static_cast<int>(j); }
+                        }
+                        if (bestMatch != -1) {
+                          faceCp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
+                          faceCp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                          faceCp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
+                        }
+                      }
+                      it->second.addContact(faceCp);
+                    }
+                  }
+                } else if (isMeshCap) {
+                  const auto &cap = std::get<collision::CapsuleShape>(collConv.shape.getVariant());
+                  Vector3 axisConv = transConv.orientation * Vector3(0, 1, 0);
+                  if (std::abs(axisConv.dot(currentNormal)) < 0.25f) {
+                    Vector3 localDir = transConv.orientation.getConjugate() * (-currentNormal);
+                    Vector3 radialDir(localDir.x, 0.0f, localDir.z);
+                    if (radialDir.lengthSquare() > 1e-6f) radialDir.normalize(); else radialDir = Vector3(1, 0, 0);
+                    float halfH = cap.height * 0.5f;
+                    std::array<Vector3, 2> capPts = {
+                        Vector3(0, halfH, 0) + radialDir * cap.radius,
+                        Vector3(0, -halfH, 0) + radialDir * cap.radius
+                    };
+                    for (const auto &v : capPts) {
+                      collision::ContactPoint faceCp;
+                      faceCp.worldPosition = transConv.position + (transConv.orientation * v);
+                      faceCp.localPointA = v;
+                      faceCp.localPointB = transMesh.orientation.getConjugate() * (faceCp.worldPosition - transMesh.position);
+                      faceCp.penetration = info.penetration;
+                      faceCp.normalImpulse = 0.0f;
+                      faceCp.tangentImpulse1 = 0.0f;
+                      faceCp.tangentImpulse2 = 0.0f;
+                      faceCp.splitImpulse = 0.0f;
+
+                      if (oldIt != oldManifoldMap.end()) {
+                        int bestMatch = -1;
+                        float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                        for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                          float distSq = (oldIt->second.contacts[j].localPointA - faceCp.localPointA).lengthSquare();
+                          if (distSq < closestDistSq) { closestDistSq = distSq; bestMatch = static_cast<int>(j); }
+                        }
+                        if (bestMatch != -1) {
+                          faceCp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
+                          faceCp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                          faceCp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
+                        }
+                      }
+                      it->second.addContact(faceCp);
+                    }
                   }
                 }
 
-                if (it->second.contactCount < 4)
-                  it->second.addContact(cp);
-                else
-                  it->second.contacts[3] = cp;
+                if (it->second.contactCount == 0) {
+                  collision::ContactPoint cp;
+                  cp.worldPosition = info.contactPoint;
+                  cp.localPointA = transConv.orientation.getConjugate() *
+                                   (cp.worldPosition - transConv.position);
+                  cp.localPointB = transMesh.orientation.getConjugate() *
+                                   (cp.worldPosition - transMesh.position);
+                  cp.penetration = info.penetration;
+                  cp.normalImpulse = 0.0f;
+                  cp.tangentImpulse1 = 0.0f;
+                  cp.tangentImpulse2 = 0.0f;
+                  cp.splitImpulse = 0.0f;
+
+                  if (oldIt != oldManifoldMap.end()) {
+                    int bestMatch = -1;
+                    float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                    for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                      float distSq =
+                          (oldIt->second.contacts[j].localPointA - cp.localPointA)
+                              .lengthSquare();
+                      if (distSq < closestDistSq) {
+                        closestDistSq = distSq;
+                        bestMatch = static_cast<int>(j);
+                      }
+                    }
+                    if (bestMatch != -1) {
+                      cp.normalImpulse =
+                          oldIt->second.contacts[bestMatch].normalImpulse;
+                      cp.tangentImpulse1 =
+                          oldIt->second.contacts[bestMatch].tangentImpulse1;
+                      cp.tangentImpulse2 =
+                          oldIt->second.contacts[bestMatch].tangentImpulse2;
+                    }
+                  }
+
+                  if (it->second.contactCount < 4)
+                    it->second.addContact(cp);
+                  else
+                    it->second.contacts[3] = cp;
+                }
               }
             }
           });
@@ -229,8 +362,6 @@ void CollisionSystem::step() {
       bool isSphereB = std::holds_alternative<collision::SphereShape>(
           collB.shape.getVariant());
 
-      const auto &collA = mRegistry.getComponent<ecs::ColliderData>(entityA);
-      const auto &collB = mRegistry.getComponent<ecs::ColliderData>(entityB);
 
       bool isTriggerPair = collA.isTrigger || collB.isTrigger;
       uint32_t id1 = entityA.id;
@@ -257,21 +388,24 @@ void CollisionSystem::step() {
           // Warm-starting itmelerini eşleştir
           auto oldIt = oldManifoldMap.find(key);
           if (oldIt != oldManifoldMap.end()) {
+            bool usedOld[4] = {false, false, false, false};
             for (uint32_t cIdx = 0; cIdx < satManifold.contactCount; ++cIdx) {
               auto &newCp = satManifold.contacts[cIdx];
-              float closestDistSq = 0.04f;
+              float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
               int bestMatch = -1;
               for (uint32_t oIdx = 0; oIdx < oldIt->second.contactCount;
                    ++oIdx) {
+                if (oIdx < 4 && usedOld[oIdx]) continue;
                 float distSq = (oldIt->second.contacts[oIdx].localPointA -
                                 newCp.localPointA)
                                    .lengthSquare();
                 if (distSq < closestDistSq) {
                   closestDistSq = distSq;
-                  bestMatch = oIdx;
+                  bestMatch = static_cast<int>(oIdx);
                 }
               }
               if (bestMatch != -1) {
+                if (bestMatch < 4) usedOld[bestMatch] = true;
                 newCp.normalImpulse =
                     oldIt->second.contacts[bestMatch].normalImpulse;
                 newCp.tangentImpulse1 =
@@ -285,6 +419,27 @@ void CollisionSystem::step() {
           satManifold.isTriggerPair = isTriggerPair;
           satManifold.computeTangents();
           mManifoldMap.insert_or_assign(key, satManifold);
+        } else {
+          auto oldIt = oldManifoldMap.find(key);
+          if (oldIt != oldManifoldMap.end() && oldIt->second.contactCount > 0) {
+            float minSep = physics::PhysicsConstants::Infinity;
+            for (uint32_t cIdx = 0; cIdx < oldIt->second.contactCount; ++cIdx) {
+              const auto &oldCp = oldIt->second.contacts[cIdx];
+              Vector3 rA = transA.orientation * oldCp.localPointA;
+              Vector3 rB = transB.orientation * oldCp.localPointB;
+              float sep = ((transA.position + rA) - (transB.position + rB)).dot(oldIt->second.normal);
+              minSep = std::min(minSep, sep);
+            }
+            if (minSep < physics::PhysicsConstants::LinearSlop) {
+              satManifold = oldIt->second;
+              satManifold.penetration = std::max(0.0f, -minSep);
+              for (uint32_t cIdx = 0; cIdx < satManifold.contactCount; ++cIdx) {
+                satManifold.contacts[cIdx].penetration = satManifold.penetration;
+                satManifold.contacts[cIdx].worldPosition = transB.position + transB.orientation * satManifold.contacts[cIdx].localPointB;
+              }
+              mManifoldMap.insert_or_assign(key, satManifold);
+            }
+          }
         }
       } else {
         collision::CollisionInfo info;
@@ -321,11 +476,32 @@ void CollisionSystem::step() {
             info = collision::NarrowPhase::EPA(simplex, collA.shape, transA,
                                                collB.shape, transB);
             hasCollided = info.hasCollision;
+            if (hasCollided) {
+              info.normal = -info.normal; // Normal sözleşmesi: manifold normali B'den A'ya bakar. EPA A->B döndürür.
+            }
+          } else {
+            auto oldIt = oldManifoldMap.find(key);
+            if (oldIt != oldManifoldMap.end() && oldIt->second.contactCount > 0) {
+              const auto &oldCp = oldIt->second.contacts[0];
+              Vector3 rA = transA.orientation * oldCp.localPointA;
+              Vector3 rB = transB.orientation * oldCp.localPointB;
+              float separation = ((transA.position + rA) - (transB.position + rB)).dot(oldIt->second.normal);
+              if (separation < physics::PhysicsConstants::LinearSlop) {
+                hasCollided = true;
+                info.hasCollision = true;
+                info.normal = oldIt->second.normal;
+                info.penetration = std::max(0.0f, -separation);
+                info.contactPoint = transB.position + rB;
+              }
+            }
           }
         }
 
         if (hasCollided) {
-          if (info.penetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
+          bool awakeA = mRegistry.hasComponent<Core::BodyState>(entityA) && !mRegistry.getComponent<Core::BodyState>(entityA).isSleeping;
+          bool awakeB = mRegistry.hasComponent<Core::BodyState>(entityB) && !mRegistry.getComponent<Core::BodyState>(entityB).isSleeping;
+          if ((awakeA && !awakeB) || (awakeB && !awakeA) ||
+              info.penetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
             wakeIfSleeping(entityA);
             wakeIfSleeping(entityB);
           }
@@ -351,7 +527,7 @@ void CollisionSystem::step() {
           auto oldIt = oldManifoldMap.find(key);
           if (oldIt != oldManifoldMap.end()) {
             int bestMatch = -1;
-            float closestDistSq = 0.04f;
+            float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
             for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
               float distSq =
                   (oldIt->second.contacts[j].localPointA - cp.localPointA)
@@ -372,7 +548,193 @@ void CollisionSystem::step() {
           }
 
           it->second.contactCount = 0;
-          it->second.addContact(cp);
+
+          bool isHullA = std::holds_alternative<collision::ConvexHullShape>(collA.shape.getVariant());
+          bool isHullB = std::holds_alternative<collision::ConvexHullShape>(collB.shape.getVariant());
+          bool isCapsuleA = std::holds_alternative<collision::CapsuleShape>(collA.shape.getVariant());
+          bool isCapsuleB = std::holds_alternative<collision::CapsuleShape>(collB.shape.getVariant());
+
+          if (isHullA) {
+            const auto &hullA = std::get<collision::ConvexHullShape>(collA.shape.getVariant());
+            Vector3 searchDir = -it->second.normal;
+            float maxProj = -physics::PhysicsConstants::Infinity;
+            for (const auto &v : hullA.vertices) {
+              Vector3 wP = transA.position + (transA.orientation * v);
+              float p = wP.dot(searchDir);
+              if (p > maxProj) maxProj = p;
+            }
+
+            for (const auto &v : hullA.vertices) {
+              Vector3 wP = transA.position + (transA.orientation * v);
+              if (wP.dot(searchDir) >= maxProj - 0.005f && it->second.contactCount < 4) {
+                collision::ContactPoint faceCp;
+                faceCp.worldPosition = wP;
+                faceCp.localPointA = v;
+                faceCp.localPointB = transB.orientation.getConjugate() *
+                                    (faceCp.worldPosition - transB.position);
+                faceCp.penetration = info.penetration;
+                faceCp.normalImpulse = 0.0f;
+                faceCp.tangentImpulse1 = 0.0f;
+                faceCp.tangentImpulse2 = 0.0f;
+                faceCp.splitImpulse = 0.0f;
+
+                if (oldIt != oldManifoldMap.end()) {
+                  int bestMatch = -1;
+                  float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                  for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                    float distSq =
+                        (oldIt->second.contacts[j].localPointA - faceCp.localPointA)
+                            .lengthSquare();
+                    if (distSq < closestDistSq) {
+                      closestDistSq = distSq;
+                      bestMatch = static_cast<int>(j);
+                    }
+                  }
+                  if (bestMatch != -1) {
+                    faceCp.normalImpulse =
+                        oldIt->second.contacts[bestMatch].normalImpulse;
+                    faceCp.tangentImpulse1 =
+                        oldIt->second.contacts[bestMatch].tangentImpulse1;
+                    faceCp.tangentImpulse2 =
+                        oldIt->second.contacts[bestMatch].tangentImpulse2;
+                  }
+                }
+                it->second.addContact(faceCp);
+              }
+            }
+          } else if (isHullB) {
+            const auto &hullB = std::get<collision::ConvexHullShape>(collB.shape.getVariant());
+            Vector3 searchDir = it->second.normal;
+            float maxProj = -physics::PhysicsConstants::Infinity;
+            for (const auto &v : hullB.vertices) {
+              Vector3 wP = transB.position + (transB.orientation * v);
+              float p = wP.dot(searchDir);
+              if (p > maxProj) maxProj = p;
+            }
+
+            for (const auto &v : hullB.vertices) {
+              Vector3 wP = transB.position + (transB.orientation * v);
+              if (wP.dot(searchDir) >= maxProj - 0.005f && it->second.contactCount < 4) {
+                collision::ContactPoint faceCp;
+                faceCp.worldPosition = wP;
+                faceCp.localPointA = transA.orientation.getConjugate() *
+                                    (faceCp.worldPosition - transA.position);
+                faceCp.localPointB = v;
+                faceCp.penetration = info.penetration;
+                faceCp.normalImpulse = 0.0f;
+                faceCp.tangentImpulse1 = 0.0f;
+                faceCp.tangentImpulse2 = 0.0f;
+                faceCp.splitImpulse = 0.0f;
+
+                if (oldIt != oldManifoldMap.end()) {
+                  int bestMatch = -1;
+                  float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                  for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                    float distSq =
+                        (oldIt->second.contacts[j].localPointA - faceCp.localPointA)
+                            .lengthSquare();
+                    if (distSq < closestDistSq) {
+                      closestDistSq = distSq;
+                      bestMatch = static_cast<int>(j);
+                    }
+                  }
+                  if (bestMatch != -1) {
+                    faceCp.normalImpulse =
+                        oldIt->second.contacts[bestMatch].normalImpulse;
+                    faceCp.tangentImpulse1 =
+                        oldIt->second.contacts[bestMatch].tangentImpulse1;
+                    faceCp.tangentImpulse2 =
+                        oldIt->second.contacts[bestMatch].tangentImpulse2;
+                  }
+                }
+                it->second.addContact(faceCp);
+              }
+            }
+          } else if (isCapsuleA) {
+            const auto &capA = std::get<collision::CapsuleShape>(collA.shape.getVariant());
+            Vector3 axisA = transA.orientation * Vector3(0, 1, 0);
+            if (std::abs(axisA.dot(it->second.normal)) < 0.25f) {
+              Vector3 localDir = transA.orientation.getConjugate() * (-it->second.normal);
+              Vector3 radialDir(localDir.x, 0.0f, localDir.z);
+              if (radialDir.lengthSquare() > 1e-6f) radialDir.normalize(); else radialDir = Vector3(1, 0, 0);
+              float halfH = capA.height * 0.5f;
+              std::array<Vector3, 2> capPts = {
+                  Vector3(0, halfH, 0) + radialDir * capA.radius,
+                  Vector3(0, -halfH, 0) + radialDir * capA.radius
+              };
+              for (const auto &v : capPts) {
+                collision::ContactPoint faceCp;
+                faceCp.worldPosition = transA.position + (transA.orientation * v);
+                faceCp.localPointA = v;
+                faceCp.localPointB = transB.orientation.getConjugate() *
+                                    (faceCp.worldPosition - transB.position);
+                faceCp.penetration = info.penetration;
+                faceCp.normalImpulse = 0.0f;
+                faceCp.tangentImpulse1 = 0.0f;
+                faceCp.tangentImpulse2 = 0.0f;
+                faceCp.splitImpulse = 0.0f;
+
+                if (oldIt != oldManifoldMap.end()) {
+                  int bestMatch = -1;
+                  float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                  for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                    float distSq = (oldIt->second.contacts[j].localPointA - faceCp.localPointA).lengthSquare();
+                    if (distSq < closestDistSq) { closestDistSq = distSq; bestMatch = static_cast<int>(j); }
+                  }
+                  if (bestMatch != -1) {
+                    faceCp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
+                    faceCp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                    faceCp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
+                  }
+                }
+                it->second.addContact(faceCp);
+              }
+            }
+          } else if (isCapsuleB) {
+            const auto &capB = std::get<collision::CapsuleShape>(collB.shape.getVariant());
+            Vector3 axisB = transB.orientation * Vector3(0, 1, 0);
+            if (std::abs(axisB.dot(it->second.normal)) < 0.25f) {
+              Vector3 localDir = transB.orientation.getConjugate() * (it->second.normal);
+              Vector3 radialDir(localDir.x, 0.0f, localDir.z);
+              if (radialDir.lengthSquare() > 1e-6f) radialDir.normalize(); else radialDir = Vector3(1, 0, 0);
+              float halfH = capB.height * 0.5f;
+              std::array<Vector3, 2> capPts = {
+                  Vector3(0, halfH, 0) + radialDir * capB.radius,
+                  Vector3(0, -halfH, 0) + radialDir * capB.radius
+              };
+              for (const auto &v : capPts) {
+                collision::ContactPoint faceCp;
+                faceCp.worldPosition = transB.position + (transB.orientation * v);
+                faceCp.localPointA = transA.orientation.getConjugate() *
+                                    (faceCp.worldPosition - transA.position);
+                faceCp.localPointB = v;
+                faceCp.penetration = info.penetration;
+                faceCp.normalImpulse = 0.0f;
+                faceCp.tangentImpulse1 = 0.0f;
+                faceCp.tangentImpulse2 = 0.0f;
+                faceCp.splitImpulse = 0.0f;
+
+                if (oldIt != oldManifoldMap.end()) {
+                  int bestMatch = -1;
+                  float closestDistSq = physics::PhysicsConstants::ContactPointMatchRadiusSq;
+                  for (uint32_t j = 0; j < oldIt->second.contactCount; ++j) {
+                    float distSq = (oldIt->second.contacts[j].localPointB - faceCp.localPointB).lengthSquare();
+                    if (distSq < closestDistSq) { closestDistSq = distSq; bestMatch = static_cast<int>(j); }
+                  }
+                  if (bestMatch != -1) {
+                    faceCp.normalImpulse = oldIt->second.contacts[bestMatch].normalImpulse;
+                    faceCp.tangentImpulse1 = oldIt->second.contacts[bestMatch].tangentImpulse1;
+                    faceCp.tangentImpulse2 = oldIt->second.contacts[bestMatch].tangentImpulse2;
+                  }
+                }
+                it->second.addContact(faceCp);
+              }
+            }
+          }
+
+          if (it->second.contactCount == 0) {
+            it->second.addContact(cp);
+          }
         }
       }
     }
@@ -531,28 +893,43 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
         float dist = collision::NarrowPhase::GJK_distance(
             colliderA.shape, currentTransform, shapeB, obsCurrentTrans, pA, pB);
 
-        if (dist < 0.02f) {
+        Vector3 relVel = motion.linearVelocity - obsVel;
+        float relSpeed = relVel.length();
+        if (relSpeed < 0.001f)
+          break;
+
+        if (dist < 0.005f) {
           if (currentTime < timeOfImpact) {
             timeOfImpact = currentTime;
             hasCollision = true;
             hitEntity = obstacle;
-            collisionNormal = (pA - pB).getNormalized();
-            if (motion.linearVelocity.dot(collisionNormal) > 0.0f) {
-              collisionNormal = collisionNormal * -1.0f;
-            }
-            if (collisionNormal.lengthSquare() < 0.001f) {
-              collisionNormal = motion.linearVelocity.getNormalized() * -1.0f;
+
+            Vector3 diff = pA - pB;
+            float diffLen = diff.length();
+            if (diffLen > 1e-4f) {
+              collisionNormal = diff / diffLen;
+              if (relVel.dot(collisionNormal) > 0.0f) {
+                collisionNormal = collisionNormal * -1.0f;
+              }
+            } else {
+              collisionNormal = relVel.getNormalized() * -1.0f;
             }
           }
           break;
         }
 
-        Vector3 relVel = motion.linearVelocity - obsVel;
-        float maxApproachSpeed = relVel.length();
-        if (maxApproachSpeed < 0.001f)
-          break;
+        Vector3 diff = pA - pB;
+        float diffLen = diff.length();
+        Vector3 normal = (diffLen > 1e-6f) ? (diff / diffLen) : (relVel * (-1.0f / relSpeed));
 
-        currentTime += dist / maxApproachSpeed;
+        // Yaklasma hizi: ayrilma eksenindeki hiz bileseni
+        float approachSpeed = -relVel.dot(normal);
+        if (approachSpeed <= 1e-4f) {
+          // Cisimler birbirinden uzaklasiyor (ayriliyor), carpisma olamaz
+          break;
+        }
+
+        currentTime += dist / relSpeed;
         if (currentTime >= timeOfImpact)
           break;
       }
@@ -586,26 +963,73 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
   });
 
   if (hasCollision && timeOfImpact < deltaTime) {
-    float timeMargin = (speed > 1e-4f) ? (0.005f / speed) : 0.0f;
-    float safeTime = std::max(0.0f, timeOfImpact - timeMargin);
+    float safeTime = std::max(0.0f, timeOfImpact);
+    float remainingTime = deltaTime - safeTime;
 
-    // 1. Pozisyonu tam çarpışma anına (güvenli sınıra) hemen ötele
+    // Erken yercekimi entegrasyonunu carpisma anina geri al
+    motion.linearVelocity -= mAccelerationField * remainingTime;
+
+    // 1. Pozisyonu carpisma anina otele
     transform.position += motion.linearVelocity * safeTime;
 
-    // 2. Seçenek A (Sliding & Stop): Normal yönündeki hızı sıfırla
-    float normalSpeed = motion.linearVelocity.dot(collisionNormal);
-    if (normalSpeed < 0.0f) {
-      motion.linearVelocity -= collisionNormal * normalSpeed;
+    // 2. Carpisma nesnelerinin kutle ve hizlarini al
+    Vector3 obsVel(0.0f, 0.0f, 0.0f);
+    float invMassObs = 0.0f;
+    if (mRegistry.hasComponent<Core::Motion>(hitEntity)) {
+      obsVel = mRegistry.getComponent<Core::Motion>(hitEntity).linearVelocity;
+    }
+    if (mRegistry.hasComponent<Core::MassProps>(hitEntity)) {
+      if (mRegistry.hasComponent<Core::BodyState>(hitEntity)) {
+        const auto &obsState = mRegistry.getComponent<Core::BodyState>(hitEntity);
+        if (obsState.type == Core::BodyType::Dynamic) {
+          invMassObs = mRegistry.getComponent<Core::MassProps>(hitEntity).inverseMass;
+        }
+      }
     }
 
-    // 3. Adımın kalan süresi için hızı ölçekle
-    float remainingTime = deltaTime - safeTime;
-    if (remainingTime > 0.0f && deltaTime > 0.0f) {
-      motion.linearVelocity =
-          motion.linearVelocity * (remainingTime / deltaTime);
-    } else {
-      motion.linearVelocity = Vector3(0.0f, 0.0f, 0.0f);
+    float invMassA = 0.0f;
+    if (mRegistry.hasComponent<Core::MassProps>(entity)) {
+      invMassA = mRegistry.getComponent<Core::MassProps>(entity).inverseMass;
     }
+
+    // 3. Restitution (sekme) katsayisini belirle
+    float restitution = 0.0f;
+    if (mRegistry.hasComponent<Core::Material>(entity) &&
+        mRegistry.hasComponent<Core::Material>(hitEntity)) {
+      const auto &matA = mRegistry.getComponent<Core::Material>(entity);
+      const auto &matB = mRegistry.getComponent<Core::Material>(hitEntity);
+      restitution = std::max(matA.restitution, matB.restitution);
+    }
+
+    Vector3 relVel = motion.linearVelocity - obsVel;
+    float normalVel = relVel.dot(collisionNormal);
+
+    if (normalVel < 0.0f) {
+      float effRestitution = 0.0f;
+      if (-normalVel > physics::PhysicsConstants::RestitutionVelocityThreshold) {
+        effRestitution = restitution;
+      }
+
+      float invMassSum = invMassA + invMassObs;
+      if (invMassSum > 1e-6f) {
+        float impulseMag = -(1.0f + effRestitution) * normalVel / invMassSum;
+        Vector3 impulse = collisionNormal * impulseMag;
+
+        motion.linearVelocity += impulse * invMassA;
+        if (invMassObs > 0.0f && mRegistry.hasComponent<Core::Motion>(hitEntity)) {
+          mRegistry.getComponent<Core::Motion>(hitEntity).linearVelocity -= impulse * invMassObs;
+        }
+      }
+    }
+
+    // 4. Adimin kalan suresi icin hareketi ve ivmeyi tamamla
+    if (remainingTime > 0.0f) {
+      transform.position += motion.linearVelocity * remainingTime +
+                            mAccelerationField * (0.5f * remainingTime * remainingTime);
+      motion.linearVelocity += mAccelerationField * remainingTime;
+    }
+
+    state.ccdIntegrated = true;
   }
 }
 

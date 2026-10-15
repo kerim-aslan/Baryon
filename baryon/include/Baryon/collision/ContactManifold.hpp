@@ -40,6 +40,7 @@ struct ContactPoint {
     float tangentImpulse2{0.0f};
     float tangentImpulse{0.0f};
     float splitImpulse{0.0f};
+    float velocityBias{0.0f};
 };
 
 /**

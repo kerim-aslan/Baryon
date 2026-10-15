@@ -46,6 +46,7 @@ private:
     Core::Registry& mRegistry;                   ///< ECS kayıt defteri referansı.
     SpatialPartitioning& mSpatialPartitioning;   ///< Geniş faz (uzaysal bölümleme) sistem referansı.
     CollisionListener* mListener{nullptr};       ///< Çarpışma ve tetikleyici olaylarını dinleyen kullanıcı sınıfı.
+    Vector3 mAccelerationField{0.0f, -9.81f, 0.0f}; ///< İvme alanı (yerçekimi)
 
     /**
      * @brief Aktif temas bilgilerini (manifold) tutan harita.
@@ -91,6 +92,7 @@ public:
     [[nodiscard]] auto& getManifolds() { return mManifoldMap; }
 
     void setListener(CollisionListener* listener) { mListener = listener; }
+    void setAccelerationField(const Vector3& accel) { mAccelerationField = accel; }
 };
 
 } // namespace Baryon::systems

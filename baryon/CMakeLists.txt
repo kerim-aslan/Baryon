@@ -42,6 +42,14 @@ target_include_directories(${TARGET_NAME}_static PUBLIC
 )
 set_target_properties(${TARGET_NAME}_static PROPERTIES OUTPUT_NAME "${TARGET_NAME}")
 
+if(MSVC)
+    target_compile_options(${TARGET_NAME}_shared PRIVATE /W4)
+    target_compile_options(${TARGET_NAME}_static PRIVATE /W4)
+else()
+    target_compile_options(${TARGET_NAME}_shared PRIVATE -Wall -Wextra -Wshadow -Wconversion)
+    target_compile_options(${TARGET_NAME}_static PRIVATE -Wall -Wextra -Wshadow -Wconversion)
+endif()
+
 # Modern CMake Alias (Allows target_link_libraries(MyProject PRIVATE Baryon::Baryon))
 add_library(Baryon::Baryon ALIAS ${TARGET_NAME}_static)
 add_library(Baryon::BaryonStatic ALIAS ${TARGET_NAME}_static)

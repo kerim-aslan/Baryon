@@ -43,19 +43,19 @@ target_link_libraries(MyGameEngine PRIVATE Baryon::Baryon)
 
 int main() {
     // 1. Simülatörü başlat (Sabit zaman adımı: 60 FPS = 0.0166s)
-    Baryon::Simulator sim(1.0f / 60.0f);
+    Baryon::Simulator sim;
 
     // 2. Statik zemin oluştur (100x1x100 kutu)
     Baryon::Pose groundPose(Baryon::Vector3(0, -0.5f, 0));
-    Baryon::collision::CollisionShape groundShape = 
-        Baryon::collision::BoxShape(Baryon::Vector3(50.0f, 0.5f, 50.0f));
+    Baryon::collision::CollisionShape groundShape{
+        Baryon::collision::BoxShape(Baryon::Vector3(50.0f, 0.5f, 50.0f))};
     Baryon::Body ground = sim.createBody(groundPose, groundShape);
     ground.setBodyType(Baryon::Core::BodyType::Static);
 
     // 3. Dinamik küre oluştur (Y=10 konumunda, 1 metre yarıçapında)
     Baryon::Pose spherePose(Baryon::Vector3(0, 10.0f, 0));
-    Baryon::collision::CollisionShape sphereShape = 
-        Baryon::collision::SphereShape(1.0f);
+    Baryon::collision::CollisionShape sphereShape{
+        Baryon::collision::SphereShape(1.0f)};
     Baryon::Body sphere = sim.createBody(spherePose, sphereShape);
     sphere.setBodyType(Baryon::Core::BodyType::Dynamic);
     sphere.setMass(2.0f);

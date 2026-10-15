@@ -101,7 +101,7 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 			float cylinderMass = (h / (h + (4.0f / 3.0f) * r));
 			float capMass = 1.0f - cylinderMass;
 			float ix = cylinderMass * ((1.0f / 12.0f) * h * h + (1.0f / 4.0f) * r * r) +
-					capMass * ((2.0f / 5.0f) * r * r + (1.0f / 2.0f) * h * r + (1.0f / 4.0f) * h * h);
+					capMass * ((2.0f / 5.0f) * r * r + (3.0f / 8.0f) * h * r + (1.0f / 4.0f) * h * h);
 			float iy = (1.0f / 2.0f) * cylinderMass * r * r + (2.0f / 5.0f) * capMass * r * r;
 			I[0].x = ix;
 			I[1].y = iy;
@@ -127,6 +127,65 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 void Simulator::destroyBody(Body &body) {
 	ecs::Entity entity = body.getEntity();
 	if (mRegistry.isAlive(entity)) {
+		// 1. Ağaç üzerinden bu cisimle temas/kesişim halindeki uyuyan cisimleri uyandır
+		if (mRegistry.hasComponent<ecs::ColliderData>(entity)) {
+			auto &collider = mRegistry.getComponent<ecs::ColliderData>(entity);
+			if (collider.treeNodeIndex != collision::NULL_NODE) {
+				collision::AABB aabb = mSpatialPartitioning.getTree().getNodeAABB(collider.treeNodeIndex);
+				const float expand = 0.05f;
+				aabb.minBounds -= Vector3(expand, expand, expand);
+				aabb.maxBounds += Vector3(expand, expand, expand);
+				mSpatialPartitioning.getTree().query(aabb, [&](ecs::Entity other) {
+					if (other.id != entity.id && mRegistry.isAlive(other) && mRegistry.hasComponent<Core::BodyState>(other)) {
+						auto &st = mRegistry.getComponent<Core::BodyState>(other);
+						st.isSleeping = false;
+						st.sleepTimer = 0.0f;
+					}
+				});
+			}
+		}
+
+		// 2. Aktif temas manifoldları üzerinden de kontrol et
+		for (const auto &[key, manifold] : mCollisionSystem.getManifolds()) {
+			if (manifold.entityA == entity) {
+				if (mRegistry.isAlive(manifold.entityB) && mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) {
+					auto &st = mRegistry.getComponent<Core::BodyState>(manifold.entityB);
+					st.isSleeping = false;
+					st.sleepTimer = 0.0f;
+				}
+			} else if (manifold.entityB == entity) {
+				if (mRegistry.isAlive(manifold.entityA) && mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) {
+					auto &st = mRegistry.getComponent<Core::BodyState>(manifold.entityA);
+					st.isSleeping = false;
+					st.sleepTimer = 0.0f;
+				}
+			}
+		}
+		auto &distConstraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
+		for (const auto &c : distConstraints) {
+			if (c.entityA == entity && mRegistry.isAlive(c.entityB) && mRegistry.hasComponent<Core::BodyState>(c.entityB)) {
+				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityB);
+				st.isSleeping = false;
+				st.sleepTimer = 0.0f;
+			} else if (c.entityB == entity && mRegistry.isAlive(c.entityA) && mRegistry.hasComponent<Core::BodyState>(c.entityA)) {
+				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityA);
+				st.isSleeping = false;
+				st.sleepTimer = 0.0f;
+			}
+		}
+		auto &revConstraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
+		for (const auto &c : revConstraints) {
+			if (c.entityA == entity && mRegistry.isAlive(c.entityB) && mRegistry.hasComponent<Core::BodyState>(c.entityB)) {
+				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityB);
+				st.isSleeping = false;
+				st.sleepTimer = 0.0f;
+			} else if (c.entityB == entity && mRegistry.isAlive(c.entityA) && mRegistry.hasComponent<Core::BodyState>(c.entityA)) {
+				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityA);
+				st.isSleeping = false;
+				st.sleepTimer = 0.0f;
+			}
+		}
+
 		mSpatialPartitioning.removeEntityFromTree(entity);
 		mRegistry.destroyEntity(entity);
 	}
@@ -142,10 +201,11 @@ void Simulator::destroyBody(Body &body) {
  * 2. CCD İşlemleri (Tünelleme önleyici).
  * 3. Geniş Faz (Broad Phase) Güncellemesi.
  * 4. Dar Faz (Narrow Phase) ve Temas Üretimi.
- * 5. Ada Sistemi (Island) ve Uyku Yönetimi.
+ * 5. Ada Sistemi (Island) Aktif Adaların Kurulması.
  * 6. Kısıtlama Çözücü (Constraint Solver).
  * 7. Konum Entegrasyonu (Hız -> Konum).
- * 8. Hiyerarşi Güncellemesi.
+ * 8. Uyku Yönetimi (Çözücü sonrası hızlara göre).
+ * 9. Hiyerarşi Güncellemesi.
  */
 void Simulator::step(float deltaTime) {
 	if (deltaTime <= 0.0f) {
@@ -183,16 +243,17 @@ void Simulator::step(float deltaTime) {
 		// 3. Kesin çarpışma testlerini yap ve temas noktalarını üret
 		mCollisionSystem.step();
 
-		// 4. Etkileşim halindeki nesne gruplarını ayır
-		auto islands = mIslandSystem.step(mCollisionSystem.getManifolds(), dt);
+		// 4. Etkileşim halindeki nesne gruplarını ayır (aktif adaları kur)
+		auto islands = mIslandSystem.buildIslands(mCollisionSystem.getManifolds());
 
-		// 5. Her nesne grubu için fiziksel tepkileri hesapla (10 hız, 4 pozisyon iterasyonu ideal dengedir)
-		for (const auto &island : islands) {
-			mSolver.execute(island, mCollisionSystem.getManifolds(), dt, 10, 4);
-		}
+		// 5. Her nesne grubu için fiziksel tepkileri hesapla (12 hız, 4 pozisyon iterasyonu)
+		mSolver.executeIslands(islands, mCollisionSystem.getManifolds(), dt, 12, 4);
 
 		// 6. Güncellenmiş hızları kullanarak konumları değiştir
 		mIntegrator.integratePositions(dt);
+
+		// 6b. Uyku durumlarını çözücü ve konum güncellemesi sonrası hızlara göre güncelle
+		mIslandSystem.updateSleep(islands, dt);
 
 		// 7. Bağlı nesne hiyerarşilerini (ebeveyn-çocuk) uyarla
 		mHierarchySystem.step();
@@ -214,6 +275,7 @@ void Simulator::step(float deltaTime) {
  */
 void Simulator::setAccelerationField(const Vector3 &accelerationField) {
 	mIntegrator.setAccelerationField(accelerationField);
+	mCollisionSystem.setAccelerationField(accelerationField);
 }
 
 /**

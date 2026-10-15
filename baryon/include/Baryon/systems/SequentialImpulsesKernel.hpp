@@ -42,7 +42,15 @@ public:
 
     void execute(
         const std::vector<ecs::Entity>& island,
-        const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
+        float deltaTime,
+        int velocityIterations = 10,
+        int positionIterations = 4
+    );
+
+    void executeIslands(
+        const std::vector<std::vector<ecs::Entity>>& islands,
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
         float deltaTime,
         int velocityIterations = 10,
         int positionIterations = 4
@@ -50,7 +58,7 @@ public:
 
     void solveIsland(
         const std::vector<ecs::Entity>& island,
-        const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifolds,
         float deltaTime
     );
 

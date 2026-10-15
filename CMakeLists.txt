@@ -28,6 +28,13 @@ if(NOT WIN32)
   add_link_options($<$<CONFIG:Debug>:-fsanitize=address,leak,undefined>)
 endif()
 
+# Derleyici Uyarı Bayrakları (Compiler Warning Flags - E5)
+if(MSVC)
+  add_compile_options(/W4)
+else()
+  add_compile_options(-Wall -Wextra -Wshadow -Wconversion)
+endif()
+
 # 1. Baryon Core (Saf C++23 fizik motoru - Sıfır dış bağımlılık)
 add_subdirectory(baryon)
 
@@ -47,14 +54,114 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/gdextension")
 endif()
 
 # 3. Otomatik Dogrulama Testleri
+enable_testing()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TunnelingTest.cpp")
     add_executable(TunnelingTest tests/TunnelingTest.cpp)
     target_link_libraries(TunnelingTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME TunnelingTest COMMAND TunnelingTest)
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/FeatureVerificationTest.cpp")
     add_executable(FeatureVerificationTest tests/FeatureVerificationTest.cpp)
     target_link_libraries(FeatureVerificationTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME FeatureVerificationTest COMMAND FeatureVerificationTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SleepTest.cpp")
+    add_executable(SleepTest tests/SleepTest.cpp)
+    target_link_libraries(SleepTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME SleepTest COMMAND SleepTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RestitutionTest.cpp")
+    add_executable(RestitutionTest tests/RestitutionTest.cpp)
+    target_link_libraries(RestitutionTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME RestitutionTest COMMAND RestitutionTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RegressionTests.cpp")
+    add_executable(RegressionTests tests/RegressionTests.cpp)
+    target_link_libraries(RegressionTests PRIVATE Baryon::BaryonStatic)
+    add_test(NAME RegressionTests COMMAND RegressionTests)
+    set_tests_properties(RegressionTests PROPERTIES LABELS "perf")
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ReadmeCodeTest.cpp")
+    add_executable(ReadmeCodeTest tests/ReadmeCodeTest.cpp)
+    target_link_libraries(ReadmeCodeTest PRIVATE Baryon::BaryonStatic)
+    target_compile_definitions(ReadmeCodeTest PRIVATE 
+        CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+        BARYON_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    add_test(NAME ReadmeCodeTest COMMAND ReadmeCodeTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/InertiaTest.cpp")
+    add_executable(InertiaTest tests/InertiaTest.cpp)
+    target_link_libraries(InertiaTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME InertiaTest COMMAND InertiaTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/MissingRegressionTest.cpp")
+    add_executable(MissingRegressionTest tests/MissingRegressionTest.cpp)
+    target_link_libraries(MissingRegressionTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME MissingRegressionTest COMMAND MissingRegressionTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/FuzzStressTest.cpp")
+    add_executable(FuzzStressTest tests/FuzzStressTest.cpp)
+    target_link_libraries(FuzzStressTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME FuzzStressTest COMMAND FuzzStressTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RestingHeightTest.cpp")
+    add_executable(RestingHeightTest tests/RestingHeightTest.cpp)
+    target_link_libraries(RestingHeightTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME RestingHeightTest COMMAND RestingHeightTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/BroadphaseAllocTest.cpp")
+    add_executable(BroadphaseAllocTest tests/BroadphaseAllocTest.cpp)
+    target_link_libraries(BroadphaseAllocTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME BroadphaseAllocTest COMMAND BroadphaseAllocTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/DegenerateNarrowphaseTest.cpp")
+    add_executable(DegenerateNarrowphaseTest tests/DegenerateNarrowphaseTest.cpp)
+    target_link_libraries(DegenerateNarrowphaseTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME DegenerateNarrowphaseTest COMMAND DegenerateNarrowphaseTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ComponentRegistrationTest.cpp")
+    add_executable(ComponentRegistrationTest tests/ComponentRegistrationTest.cpp)
+    target_link_libraries(ComponentRegistrationTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME ComponentRegistrationTest COMMAND ComponentRegistrationTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/DebugManagerTest.cpp")
+    add_executable(DebugManagerTest tests/DebugManagerTest.cpp)
+    target_link_libraries(DebugManagerTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME DebugManagerTest COMMAND DebugManagerTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/MutationAndDenseMeshTest.cpp")
+    add_executable(MutationAndDenseMeshTest tests/MutationAndDenseMeshTest.cpp)
+    target_link_libraries(MutationAndDenseMeshTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME MutationAndDenseMeshTest COMMAND MutationAndDenseMeshTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/QualityChecksTest.cpp")
+    add_executable(QualityChecksTest tests/QualityChecksTest.cpp)
+    target_link_libraries(QualityChecksTest PRIVATE Baryon::BaryonStatic)
+    target_compile_definitions(QualityChecksTest PRIVATE SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME QualityChecksTest COMMAND QualityChecksTest)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/NarrowPhaseRefactorTest.cpp")
+    add_executable(NarrowPhaseRefactorTest tests/NarrowPhaseRefactorTest.cpp)
+    target_link_libraries(NarrowPhaseRefactorTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME NarrowPhaseRefactorTest COMMAND NarrowPhaseRefactorTest)
 endif()
 
 # 4. Baryon Görsel Teşhis ve Test Aracı (Baryon Visual Debugger & Testbed)

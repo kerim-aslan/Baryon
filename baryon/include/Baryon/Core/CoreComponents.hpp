@@ -94,6 +94,7 @@ struct BodyState {
     float sleepTimer{0.0f};             ///< Cismin uyku moduna geçmesi için geçen hareketsiz süre sayacı.
     bool useCCD{true};                  ///< Sürekli Çarpışma Algılama (CCD - hızlı cisimlerin tünellemesini önler) aktif mi?
     float ccdMotionThreshold{0.0f};     ///< CCD'nin devreye girmesi için cismin o karede ulaşması gereken minimum hız eşiği.
+    bool ccdIntegrated{false};          ///< CCD bu adımda konum entegrasyonunu tamamladı mı?
 };
 
 /**

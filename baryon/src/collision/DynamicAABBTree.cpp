@@ -245,6 +245,7 @@ void DynamicAABBTree::removeLeaf(int32_t leafNodeIndex) {
  *          yeni konumuna göre tekrar ekler.
  */
 int32_t DynamicAABBTree::updateLeaf(int32_t nodeIndex, const AABB& newAABB) {
+    mUpdateLeafCalls++;
     if (mNodes[nodeIndex].aabb.contains(newAABB)) {
         return nodeIndex; 
     }

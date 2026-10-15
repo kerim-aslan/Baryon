@@ -217,6 +217,24 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Cismin kütlesini döndürür.
+   */
+  [[nodiscard]] std::expected<float, PhysicsError> getMass() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::MassProps>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::MassProps>(mEntity).mass;
+  }
+
+  /**
+   * @brief Cismin yerel eylemsizlik tensörünü döndürür.
+   */
+  [[nodiscard]] std::expected<Matrix3x3, PhysicsError> getLocalInertiaTensor() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::MassProps>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::MassProps>(mEntity).localInertiaTensor;
+  }
+
   std::expected<Body, PhysicsError> applyForce(const Vector3 &force) {
     if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity) ||
         !mRegistry->hasComponent<Core::BodyState>(mEntity))

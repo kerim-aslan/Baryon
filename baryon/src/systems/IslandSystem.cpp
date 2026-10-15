@@ -36,29 +36,10 @@ namespace Baryon::systems {
 IslandSystem::IslandSystem(Core::Registry &registry) : mRegistry(registry) {}
 
 /**
- * @brief Ada tespiti yapar, uyku sürelerini yönetir ve aktif iş yükünü
- * belirler.
- * @details Süreç üç ana aşamadan oluşur:
- *
- *          1. BAĞLANTI GRAFİĞİ: Temas verileri ve kısıtlamalar (joint)
- * taranarak dinamik cisimler arasındaki komşuluk ilişkileri haritalanır.
- *
- *          2. ADA TESPİTİ (BFS): Ziyaret edilmemiş her dinamik cisimden
- * başlanarak Genişlik Öncelikli Arama (BFS) yapılır ve birbirine bağlı tüm
- * nesneler aynı "ada" içerisine toplanır.
- *
- *          3. UYKU YÖNETİMİ: Bir adadaki tüm cisimlerin hızı belirlenen
- * eşiklerin (0.20 m/s ve 0.35 rad/s) altında kalırsa, ada uyku moduna girmeye
- * aday olur. 0.5 saniye boyunca bu durum korunursa, ada tamamen uyutulur ve
- * hesaplamadan çıkarılır.
- *
- * @param manifolds Mevcut aktif temas verileri.
- * @param deltaTime Zaman adımı.
- * @return Çözücüye gönderilecek olan aktif (uyumayan) adaların listesi.
+ * @brief Temas ve kısıtlama grafiğinden aktif adaları (bağlantılı dinamik nesne gruplarını) oluşturur.
  */
-std::vector<std::vector<ecs::Entity>> IslandSystem::step(
-    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
-    float deltaTime) {
+std::vector<std::vector<ecs::Entity>> IslandSystem::buildIslands(
+    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds) {
 
   std::vector<std::vector<ecs::Entity>> activeIslands;
 
@@ -94,7 +75,7 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
   for (const auto &constraint : revConstraints)
     addEdge(constraint.entityA, constraint.entityB);
 
-  // AŞAMA 2: BFS algoritması ile bağımsız adaları bul
+  // BFS algoritması ile bağımsız adaları bul
   std::unordered_set<uint32_t> visited;
   auto &entities =
       mRegistry.getComponentPool<Core::BodyState>().getAllEntities();
@@ -114,28 +95,10 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
     q.push(startEntity);
     visited.insert(startEntity.id);
 
-    bool canSleep = true;
-    const float kSleepLinearThresholdSq =
-        physics::PhysicsConstants::SleepLinearThresholdSq;
-    const float kSleepAngularThresholdSq =
-        physics::PhysicsConstants::SleepAngularThresholdSq;
-
     while (!q.empty()) {
       ecs::Entity curr = q.front();
       q.pop();
       island.push_back(curr);
-
-      // Hareket Kontrolü: Adadaki herhangi bir cisim hızlıysa ada uyanık
-      // kalmalıdır
-      if (mRegistry.hasComponent<Core::Motion>(curr)) {
-        auto &currMotion = mRegistry.getComponent<Core::Motion>(curr);
-        if (currMotion.linearVelocity.lengthSquare() >=
-                kSleepLinearThresholdSq ||
-            currMotion.angularVelocity.lengthSquare() >=
-                kSleepAngularThresholdSq) {
-          canSleep = false;
-        }
-      }
 
       for (ecs::Entity neighbor : adjList[curr.id]) {
         if (!mRegistry.hasComponent<Core::BodyState>(neighbor))
@@ -151,49 +114,111 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::step(
         }
         // Statik veya Kinematik nesneler yapraktır (leaf). 
         // Arama bunların üzerinden devam etmez ve adaya dahil edilmezler.
-        // Bu sayede statik zemin yüzünden tüm adaların temasları birbirine karışmaz.
       }
     }
 
-    // AŞAMA 3: Adanın uyku durumuna karar ver
-    if (canSleep) {
-      // Ada hareketsiz: Tüm nesnelerin uyku sayaçlarını artır
-      bool fellAsleep = false;
-      for (ecs::Entity ent : island) {
-        auto &state = mRegistry.getComponent<Core::BodyState>(ent);
-        if (state.type != Core::BodyType::Dynamic)
-          continue;
-
-        state.sleepTimer += deltaTime;
-        if (state.sleepTimer >= 0.5f) { // Belirlenen süre sonunda uykuya dal
-          if (!state.isSleeping)
-            BARYON_LOG_SLEEP("Entity ", ent.id, " fell asleep.");
-          state.isSleeping = true;
-          fellAsleep = true;
-
-          // Uyuyan cismin enerjisini tamamen sıfırla (Titremeyi önler)
-          if (mRegistry.hasComponent<Core::Motion>(ent)) {
-            auto &motion = mRegistry.getComponent<Core::Motion>(ent);
-            motion.linearVelocity = Vector3(0, 0, 0);
-            motion.angularVelocity = Vector3(0, 0, 0);
-          }
+    // Adadaki herhangi bir cisim uyanıksa tüm ada uyanık olmalıdır
+    bool hasAwakeBody = false;
+    for (ecs::Entity ent : island) {
+      if (mRegistry.hasComponent<Core::BodyState>(ent)) {
+        if (!mRegistry.getComponent<Core::BodyState>(ent).isSleeping) {
+          hasAwakeBody = true;
+          break;
         }
       }
-      // Eğer henüz hepsi uykuya dalmadıysa aktif iş yükünde tut
-      if (!fellAsleep) {
-        activeIslands.push_back(std::move(island));
-      }
-    } else {
+    }
+
+    if (hasAwakeBody) {
       for (ecs::Entity ent : island) {
-        auto &state = mRegistry.getComponent<Core::BodyState>(ent);
-        state.sleepTimer = 0.0f;
-        state.isSleeping = false;
+        if (mRegistry.hasComponent<Core::BodyState>(ent)) {
+          auto &state = mRegistry.getComponent<Core::BodyState>(ent);
+          state.isSleeping = false;
+        }
       }
       activeIslands.push_back(std::move(island));
     }
   }
 
   return activeIslands;
+}
+
+/**
+ * @brief Çözücü ve konum entegrasyonu sonrasında adaların uyku durumunu günceller.
+ */
+void IslandSystem::updateSleep(
+    const std::vector<std::vector<ecs::Entity>> &activeIslands,
+    float deltaTime) {
+
+  const float kSleepLinearThresholdSq =
+      physics::PhysicsConstants::SleepLinearThresholdSq;
+  const float kSleepAngularThresholdSq =
+      physics::PhysicsConstants::SleepAngularThresholdSq;
+  const float kTimeToSleep =
+      physics::PhysicsConstants::TimeToSleep;
+
+  for (const auto &island : activeIslands) {
+    bool canSleep = true;
+
+    // Adadaki tüm dinamik cisimlerin hızlarını kontrol et
+    for (ecs::Entity ent : island) {
+      if (mRegistry.hasComponent<Core::Motion>(ent)) {
+        const auto &motion = mRegistry.getComponent<Core::Motion>(ent);
+        if (motion.linearVelocity.lengthSquare() >= kSleepLinearThresholdSq ||
+            motion.angularVelocity.lengthSquare() >= kSleepAngularThresholdSq) {
+          canSleep = false;
+          break;
+        }
+      }
+    }
+
+    if (canSleep) {
+      // Tüm ada sakin: Sayaçları artır
+      for (ecs::Entity ent : island) {
+        if (!mRegistry.hasComponent<Core::BodyState>(ent))
+          continue;
+        auto &state = mRegistry.getComponent<Core::BodyState>(ent);
+        if (state.type != Core::BodyType::Dynamic)
+          continue;
+
+        state.sleepTimer += deltaTime;
+        if (state.sleepTimer >= kTimeToSleep) {
+          if (!state.isSleeping) {
+            BARYON_LOG_SLEEP("Entity ", ent.id, " fell asleep.");
+          }
+          state.isSleeping = true;
+
+          // Uyuyan cismin enerjisini sıfırla
+          if (mRegistry.hasComponent<Core::Motion>(ent)) {
+            auto &motion = mRegistry.getComponent<Core::Motion>(ent);
+            motion.linearVelocity = Vector3(0, 0, 0);
+            motion.angularVelocity = Vector3(0, 0, 0);
+            motion.splitLinearVelocity = Vector3(0, 0, 0);
+            motion.splitAngularVelocity = Vector3(0, 0, 0);
+          }
+        }
+      }
+    } else {
+      // Ada hareketli: Sayaçları ve uyku durumunu sıfırla
+      for (ecs::Entity ent : island) {
+        if (!mRegistry.hasComponent<Core::BodyState>(ent))
+          continue;
+        auto &state = mRegistry.getComponent<Core::BodyState>(ent);
+        state.sleepTimer = 0.0f;
+        state.isSleeping = false;
+      }
+    }
+  }
+}
+
+/**
+ * @brief Geriye dönük uyumluluk adımı.
+ */
+std::vector<std::vector<ecs::Entity>> IslandSystem::step(
+    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    float deltaTime) {
+  auto islands = buildIslands(manifolds);
+  updateSleep(islands, deltaTime);
+  return islands;
 }
 
 } // namespace Baryon::systems

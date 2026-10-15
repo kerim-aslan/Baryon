@@ -108,7 +108,7 @@ int main() {
     // 3. Simülasyonu adımla
     for (int i = 0; i < 60; ++i) {
         sim.step(1.0f / 60.0f);
-        std::cout << "Küre Yüksekliği: " << sphere.getPosition().y << " m\n";
+        std::cout << "Küre Yüksekliği: " << sphere.getPosition().value().y << " m\n";
     }
 
     return 0;

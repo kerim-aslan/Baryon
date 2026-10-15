@@ -114,8 +114,12 @@ void Integrator::integratePositions(float deltaTime) {
         auto& mass = mRegistry.getComponent<Core::MassProps>(entity);
 
         // Doğrusal Hareket: p = p + (v + v_split)·dt
-        Vector3 effectiveLinVel = motion.linearVelocity + motion.splitLinearVelocity;
-        pose.position += effectiveLinVel * deltaTime;
+        if (!state.ccdIntegrated) {
+            Vector3 effectiveLinVel = motion.linearVelocity + motion.splitLinearVelocity;
+            pose.position += effectiveLinVel * deltaTime;
+        } else {
+            state.ccdIntegrated = false;
+        }
 
         // Açısal Hareket (Kuaterniyon türevi entegrasyonu)
         Vector3 effectiveAngVel = motion.angularVelocity + motion.splitAngularVelocity;

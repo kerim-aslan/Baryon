@@ -65,8 +65,8 @@ struct Quaternion {
    * @brief Doğrudan x, y, z ve w bileşenlerini belirleyerek kuaterniyon
    * oluşturur.
    */
-  constexpr Quaternion(float x, float y, float z, float w)
-      : x(x), y(y), z(z), w(w) {}
+  constexpr Quaternion(float inX, float inY, float inZ, float inW)
+      : x(inX), y(inY), z(inZ), w(inW) {}
 
   /**
    * @brief Belirli bir eksen ve açı (radyan) kullanarak rotasyon oluşturur.

@@ -55,16 +55,21 @@ struct PhysicsConstants {
     // --- Uyku Sistemi (Sleep) Eşikleri ---
     
     /**
-     * @brief Cismin uyku moduna geçmesi için gereken maksimum doğrusal hızın karesi.
-     * @details Hareketi durma noktasına gelen cisimleri uyutarak işlemci yükünü azaltır (~0.31 m/s).
+     * @brief Cismin uyku moduna geçmesi için gereken maksimum doğrusal hız eşiği (0.05 m/s).
      */
-    static constexpr float SleepLinearThresholdSq = 0.1f; 
+    static constexpr float SleepLinearThreshold = 0.05f;
+    static constexpr float SleepLinearThresholdSq = SleepLinearThreshold * SleepLinearThreshold; 
 
     /**
-     * @brief Cismin uyku moduna geçmesi için gereken maksimum açısal hızın karesi.
-     * @details Dönme hareketi bitmek üzere olan cisimleri uyutmak için kullanılır (~0.2 rad/s).
+     * @brief Cismin uyku moduna geçmesi için gereken maksimum açısal hız eşiği (0.05 rad/s).
      */
-    static constexpr float SleepAngularThresholdSq = 0.04f;
+    static constexpr float SleepAngularThreshold = 0.05f;
+    static constexpr float SleepAngularThresholdSq = SleepAngularThreshold * SleepAngularThreshold;
+
+    /**
+     * @brief Cismin uyku moduna geçmesi için hareketsiz kalması gereken süre (0.5 saniye).
+     */
+    static constexpr float TimeToSleep = 0.5f;
 
     /**
      * @brief Mikro hareketleri yok saymak için kullanılan ölü bölge (dead-zone) eşiği.
@@ -78,6 +83,43 @@ struct PhysicsConstants {
      *          durmuş cisimlerin kendi ağırlıklarıyla sonsuza kadar titreyerek zıplaması engellenir.
      */
     static constexpr float RestitutionVelocityThreshold = 1.0f;
+
+    // --- Çarpışma ve Manifold Eşleşme Sabitleri (Magic Numbers Centralization) ---
+
+    /**
+     * @brief Manifold tutarlılığı ve ardışık temas normali yönelim uyum eşiği.
+     */
+    static constexpr float ManifoldNormalAlignmentThreshold = 0.95f;
+
+    /**
+     * @brief Warm-starting temas noktası eşleme mesafesinin karesi ((0.20m)^2 = 0.04m^2).
+     */
+    static constexpr float ContactPointMatchRadiusSq = 0.04f;
+
+    /**
+     * @brief AABB genişletmesi ve hız kestirimi için varsayılan zaman faktörü (0.02s).
+     */
+    static constexpr float AabbVelocityInflationTime = 0.02f;
+
+    /**
+     * @brief Yuvarlanma sürtünmesi (rolling friction) katsayısı.
+     */
+    static constexpr float RollingFrictionCoefficient = 0.02f;
+
+    /**
+     * @brief Yuvarlanma sürtünmesinin devreye girmesi için minimum bağıl açısal hız eşiği.
+     */
+    static constexpr float RollingFrictionAngularVelocityThreshold = 1e-4f;
+
+    /**
+     * @brief Statik mesh genişlik sorgusu varsayılan yarıçapı.
+     */
+    static constexpr float DefaultMeshQueryExtent = 3.0f;
+
+    /**
+     * @brief Sayısal sonsuz/büyük değer sabiti.
+     */
+    static constexpr float Infinity = 1e10f;
 };
 
 } // namespace Baryon::physics

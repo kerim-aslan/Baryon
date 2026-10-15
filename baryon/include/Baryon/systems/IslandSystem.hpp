@@ -48,14 +48,29 @@ public:
     explicit IslandSystem(Core::Registry& registry);
 
     /**
-     * @brief Nesneleri gruplara ayırır ve uyku durumlarını kontrol eder.
-     * @details 
-     * 1. Temas halindeki tüm nesneleri analiz ederek bir bağlantı haritası çıkarır.
-     * 2. Birbirine değen nesneleri "ada" adı verilen bağımsız gruplara atar.
-     * 3. Her adayı kendi içinde fizik çözücüsüne (solver) gönderir.
-     * 4. Enerji Tasarrufu: Bir adadaki tüm nesneler durma noktasına gelirse, 
-     *    ada tamamen uyutulur ve tekrar hareket edene kadar hesaplanmaz.
-     * 
+     * @brief Temas ve kısıtlama grafiğinden aktif adaları (bağlantılı dinamik nesne gruplarını) oluşturur.
+     * @details Uyuyan adalar çözücü iş yükünü azaltmak için hariç tutulur; adadaki herhangi bir
+     *          nesne uyanıksa tüm ada uyandırılır.
+     * @param manifolds Mevcut aktif temas verileri.
+     * @return Çözücüye gönderilecek aktif adalar listesi.
+     */
+    std::vector<std::vector<ecs::Entity>> buildIslands(
+        const std::unordered_map<uint64_t, collision::ContactManifold>& manifolds);
+
+    /**
+     * @brief Çözücü ve konum entegrasyonu sonrasında adaların uyku durumunu günceller.
+     * @details Çözücü yerçekimi ve normal kuvvet dengesini sağladıktan sonra hızlara bakar.
+     *          Eğer bir adadaki tüm nesneler uyku eşiklerinin altındaysa uyku sayacı artırılır;
+     *          süre dolunca adadaki tüm nesneler uyutulur ve hızları sıfırlanır.
+     * @param activeIslands Çözülmüş aktif adalar listesi.
+     * @param deltaTime Geçen zaman adımı.
+     */
+    void updateSleep(
+        const std::vector<std::vector<ecs::Entity>>& activeIslands,
+        float deltaTime);
+
+    /**
+     * @brief Nesneleri gruplara ayırır ve uyku durumlarını kontrol eder (Geriye dönük uyumluluk).
      * @param manifolds Mevcut aktif temas verileri.
      * @param deltaTime Geçen zaman adımı.
      * @return Tespit edilen ve işlenen adaların (nesne gruplarının) listesi.

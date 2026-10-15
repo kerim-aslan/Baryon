@@ -41,14 +41,12 @@ SequentialImpulsesKernel::SequentialImpulsesKernel(Core::Registry &registry)
 
 void SequentialImpulsesKernel::execute(
     const std::vector<ecs::Entity> &island,
-    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
     float deltaTime, int velocityIterations, int positionIterations) {
   if (island.empty())
     return;
 
-  auto &manifoldMap =
-      const_cast<std::unordered_map<uint64_t, collision::ContactManifold> &>(
-          manifolds);
+  auto &manifoldMap = manifolds;
   std::vector<collision::ContactManifold *> localManifolds;
   localManifolds.reserve(std::min(manifolds.size(), static_cast<size_t>(64)));
 
@@ -161,9 +159,123 @@ void SequentialImpulsesKernel::execute(
   }
 }
 
+void SequentialImpulsesKernel::executeIslands(
+    const std::vector<std::vector<ecs::Entity>> &islands,
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    float deltaTime, int velocityIterations, int positionIterations) {
+  if (islands.empty())
+    return;
+
+  auto &manifoldMap = manifolds;
+
+  // 1. Dinamik varlıkları ada indekslerine eşle (O(N))
+  std::unordered_map<uint32_t, size_t> entityToIsland;
+  size_t totalEntities = 0;
+  for (const auto &island : islands) {
+    totalEntities += island.size();
+  }
+  entityToIsland.reserve(totalEntities * 2);
+
+  for (size_t i = 0; i < islands.size(); ++i) {
+    for (ecs::Entity e : islands[i]) {
+      entityToIsland[e.id] = i;
+    }
+  }
+
+  // 2. Manifoldları ilgili adalara yönlendir (O(M))
+  std::vector<std::vector<collision::ContactManifold *>> islandManifolds(islands.size());
+  for (auto &[key, manifold] : manifoldMap) {
+    auto itA = entityToIsland.find(manifold.entityA.id);
+    if (itA != entityToIsland.end()) {
+      islandManifolds[itA->second].push_back(&manifold);
+    } else {
+      auto itB = entityToIsland.find(manifold.entityB.id);
+      if (itB != entityToIsland.end()) {
+        islandManifolds[itB->second].push_back(&manifold);
+      }
+    }
+  }
+
+  // 3. Mesafe kısıtlamalarını ilgili adalara yönlendir (O(C_dist))
+  std::vector<std::vector<collision::DistanceConstraint *>> islandDistance(islands.size());
+  if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
+    auto &constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
+    for (auto &constraint : constraints) {
+      auto itA = entityToIsland.find(constraint.entityA.id);
+      if (itA != entityToIsland.end()) {
+        islandDistance[itA->second].push_back(&constraint);
+      } else {
+        auto itB = entityToIsland.find(constraint.entityB.id);
+        if (itB != entityToIsland.end()) {
+          islandDistance[itB->second].push_back(&constraint);
+        }
+      }
+    }
+  }
+
+  // 4. Menteşe kısıtlamalarını ilgili adalara yönlendir (O(C_rev))
+  std::vector<std::vector<collision::RevoluteConstraint *>> islandRevolute(islands.size());
+  if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
+    auto &constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
+    for (auto &constraint : constraints) {
+      auto itA = entityToIsland.find(constraint.entityA.id);
+      if (itA != entityToIsland.end()) {
+        islandRevolute[itA->second].push_back(&constraint);
+      } else {
+        auto itB = entityToIsland.find(constraint.entityB.id);
+        if (itB != entityToIsland.end()) {
+          islandRevolute[itB->second].push_back(&constraint);
+        }
+      }
+    }
+  }
+
+  // 5. Her adayı kendi temasları ve kısıtlamaları ile çöz
+  for (size_t i = 0; i < islands.size(); ++i) {
+    const auto &localManifolds = islandManifolds[i];
+    const auto &localDist = islandDistance[i];
+    const auto &localRev = islandRevolute[i];
+
+    if (localManifolds.empty() && localDist.empty() && localRev.empty()) {
+      continue;
+    }
+
+    // Ön-adım
+    for (collision::ContactManifold *manifold : localManifolds) {
+      if (manifold->isTriggerPair)
+        continue;
+      preStep(*manifold, deltaTime);
+    }
+
+    // Hız İterasyonları
+    for (int iter = 0; iter < velocityIterations; ++iter) {
+      for (collision::ContactManifold *manifold : localManifolds) {
+        if (manifold->isTriggerPair)
+          continue;
+        resolveCollision(*manifold, deltaTime);
+      }
+      for (collision::DistanceConstraint *constraint : localDist) {
+        resolveDistanceConstraint(*constraint, deltaTime);
+      }
+      for (collision::RevoluteConstraint *constraint : localRev) {
+        resolveRevoluteConstraint(*constraint, deltaTime);
+      }
+    }
+
+    // Pozisyon İterasyonları
+    for (int iter = 0; iter < positionIterations; ++iter) {
+      for (collision::ContactManifold *manifold : localManifolds) {
+        if (manifold->isTriggerPair)
+          continue;
+        solvePositionConstraints(*manifold, deltaTime);
+      }
+    }
+  }
+}
+
 void SequentialImpulsesKernel::solveIsland(
     const std::vector<ecs::Entity> &island,
-    const std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
     float deltaTime) {
   execute(island, manifolds, deltaTime, 10, 4);
 }
@@ -217,12 +329,30 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
   Vector3 t1 = manifold.tangent1;
   Vector3 t2 = manifold.tangent2;
 
+  float restitution = 0.0f;
+  if (mRegistry.hasComponent<Core::Material>(manifold.entityA) &&
+      mRegistry.hasComponent<Core::Material>(manifold.entityB)) {
+    const auto &matA = mRegistry.getComponent<Core::Material>(manifold.entityA);
+    const auto &matB = mRegistry.getComponent<Core::Material>(manifold.entityB);
+    restitution = std::max(matA.restitution, matB.restitution);
+  }
+
   for (uint32_t i = 0; i < manifold.contactCount; ++i) {
     auto &contact = manifold.contacts[i];
     contact.splitImpulse = 0.0f;
 
     Vector3 rA = poseA.orientation * contact.localPointA;
     Vector3 rB = poseB.orientation * contact.localPointB;
+
+    Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+    Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+    Vector3 relVel = vA - vB;
+    float normalVel = relVel.dot(n);
+
+    contact.velocityBias = 0.0f;
+    if (normalVel < -physics::PhysicsConstants::RestitutionVelocityThreshold) {
+      contact.velocityBias = -restitution * normalVel;
+    }
 
     // Warm Starting itmelerini hızlara uygula
     Vector3 totalImpulse = (n * contact.normalImpulse) +
@@ -275,13 +405,11 @@ void SequentialImpulsesKernel::resolveCollision(
                               : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
 
   float friction = 0.4f;
-  float restitution = 0.0f;
   if (mRegistry.hasComponent<Core::Material>(manifold.entityA) &&
       mRegistry.hasComponent<Core::Material>(manifold.entityB)) {
     const auto &matA = mRegistry.getComponent<Core::Material>(manifold.entityA);
     const auto &matB = mRegistry.getComponent<Core::Material>(manifold.entityB);
     friction = std::sqrt(matA.friction * matB.friction);
-    restitution = std::max(matA.restitution, matB.restitution);
   }
 
   Vector3 n = manifold.normal;
@@ -300,11 +428,7 @@ void SequentialImpulsesKernel::resolveCollision(
     Vector3 relVel = vA - vB;
 
     float normalVel = relVel.dot(n);
-    float deltaV = -normalVel;
-
-    if (normalVel < -physics::PhysicsConstants::RestitutionVelocityThreshold) {
-      deltaV -= restitution * normalVel;
-    }
+    float deltaV = -normalVel + contact.velocityBias;
 
     Vector3 rACrossN = rA.cross(n);
     Vector3 rBCrossN = rB.cross(n);
@@ -375,9 +499,9 @@ void SequentialImpulsesKernel::resolveCollision(
     // 3. Yuvarlanma Direnci (Rolling Resistance)
     Vector3 relAngVel = motionA.angularVelocity - motionB.angularVelocity;
     float relAngSpeed = relAngVel.length();
-    if (relAngSpeed > 1e-4f && contact.normalImpulse > 0.0f) {
+    if (relAngSpeed > physics::PhysicsConstants::RollingFrictionAngularVelocityThreshold && contact.normalImpulse > 0.0f) {
       Vector3 rollDir = relAngVel / relAngSpeed;
-      float maxRollImpulse = 0.02f * friction * contact.normalImpulse;
+      float maxRollImpulse = physics::PhysicsConstants::RollingFrictionCoefficient * friction * contact.normalImpulse;
       float invAngMassSum = (invIA * rollDir).dot(rollDir) + (invIB * rollDir).dot(rollDir);
       if (invAngMassSum > 1e-6f) {
         float jRoll = std::min(relAngSpeed / invAngMassSum, maxRollImpulse);

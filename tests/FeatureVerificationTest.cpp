@@ -57,6 +57,7 @@ void runBodyApiTests() {
     // 4. Angular Velocity getter/setter
     body.setAngularVelocity(Vector3(1, 2, 3));
     Vector3 w = body.getAngularVelocity().value();
+    (void)w;
     assert(std::abs(w.x - 1.0f) < 1e-4f && std::abs(w.y - 2.0f) < 1e-4f && std::abs(w.z - 3.0f) < 1e-4f);
 
     // 5. Material
@@ -107,6 +108,7 @@ void runTriggerMechanicsTest() {
         }
     }
 
+    (void)wasInsideTrigger;
     assert(wasInsideTrigger);
     // After 1 second at 10 m/s, runner should be around X = 7.0 without stopping or bouncing
     Vector3 finalPos = sim.getRegistry().getComponent<Pose>(runner.getEntity()).position;
@@ -230,7 +232,7 @@ void runDynamicSparseSetGrowthTest() {
     const int count = 12000;
     collision::CollisionShape shape{collision::BoxShape(Vector3(0.1f, 0.1f, 0.1f))};
     for (int i = 0; i < count; ++i) {
-        sim.createBody(Pose(Vector3(i * 0.5f, 0, 0)), shape);
+        sim.createBody(Pose(Vector3(static_cast<float>(i) * 0.5f, 0, 0)), shape);
     }
 
     assert(sim.getRegistry().getComponentPool<Pose>().getAllEntities().size() == count);

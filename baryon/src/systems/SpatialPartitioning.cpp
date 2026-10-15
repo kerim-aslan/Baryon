@@ -25,6 +25,7 @@
 
 #include "Baryon/systems/SpatialPartitioning.hpp"
 #include "Baryon/Core/CoreComponents.hpp"
+#include "Baryon/collision/PhysicsConstants.hpp"
 #include <ranges>
 
 namespace Baryon::systems {
@@ -108,7 +109,7 @@ void SpatialPartitioning::updateEntityInTree(ecs::Entity entity) {
     // Hareket eden nesneler için hız süpürmesi (Swept AABB): Hızlı nesnelerin broad-phase'de atlanmasını engeller
     if (mRegistry.hasComponent<Core::Motion>(entity)) {
         const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
-        Vector3 disp = motion.linearVelocity * 0.02f;
+        Vector3 disp = motion.linearVelocity * physics::PhysicsConstants::AabbVelocityInflationTime;
         if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
         if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
         if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;
@@ -186,10 +187,17 @@ void SpatialPartitioning::step() {
     auto& entities = collidersPool.getAllEntities();
     auto& colliders = collidersPool.getAllData();
 
-    // Aşama 1: Tüm AABB'leri güncelle
+    // Aşama 1: Tüm AABB'leri güncelle (Yalnızca hareket edebilen uyanık dinamik nesneler)
     for (auto&& [entity, collider] : std::views::zip(entities, colliders)) {
         if (collider.treeNodeIndex == collision::NULL_NODE) continue;
         if (!mRegistry.hasComponent<Pose>(entity)) continue;
+
+        if (mRegistry.hasComponent<Core::BodyState>(entity)) {
+            const auto& st = mRegistry.getComponent<Core::BodyState>(entity);
+            if (st.type == Core::BodyType::Static || st.isSleeping) {
+                continue;
+            }
+        }
 
         const auto& transform = mRegistry.getComponent<Pose>(entity);
         
@@ -212,7 +220,7 @@ void SpatialPartitioning::step() {
 
         if (mRegistry.hasComponent<Core::Motion>(entity)) {
             const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
-            Vector3 disp = motion.linearVelocity * 0.02f;
+            Vector3 disp = motion.linearVelocity * physics::PhysicsConstants::AabbVelocityInflationTime;
             if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
             if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
             if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;

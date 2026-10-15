@@ -18,63 +18,65 @@
 
 #pragma once
 
-#include "Baryon/Core/CoreComponents.hpp"
+#include "Baryon/Core/ComponentTypes.hpp"
 #include "Baryon/Core/Snapshot.hpp"
-#include "Baryon/collision/DistanceConstraint.hpp"
-#include "Baryon/collision/RevoluteConstraint.hpp"
-#include "Baryon/ecs/ColliderComponents.hpp"
 #include "Baryon/ecs/EntityManager.hpp"
 #include "Baryon/ecs/SparseSet.hpp"
-#include "Baryon/math/Pose.hpp"
 #include "Baryon/memory/MemoryManager.hpp"
 #include <tuple>
-
+#include <type_traits>
 
 /**
  * @file Registry.hpp
  * @brief Merkezi ECS (Varlık Bileşen Sistemi) Kayıt Defteri.
  * @details Motor içindeki tüm varlıkları (entity) ve onlara ait bileşenleri
  * (component) yöneten ana sistemdir. Tüm veriler burada güvenli ve performanslı
- * bir şekilde saklanır.
+ * bir şekilde saklanır. Tek bir ComponentTypes listesi üzerinden tip güvenli ve
+ * otomatik genişletilebilir şekilde çalışır.
  */
 namespace Baryon::Core {
 
-/**
- * @class Registry
- * @brief Tüm ECS veritabanını yöneten ana sınıf.
- * @details Varlıkların yaşam döngüsünü ve bileşenlerini kontrol eder. Ayrıca
- * sahnenin durumunu kaydetme (snapshot) ve geri yükleme özelliklerini
- * barındırır.
- */
-class Registry {
-private:
-  ecs::EntityManager mEntityManager; ///< Varlıkların (entity) kimliklerini ve
-                                     ///< yaşam döngüsünü yönetir.
+template <typename Tuple>
+struct MapToSparseSet;
 
-  /**
-   * @brief Motorun desteklediği tüm bileşenlerin tutulduğu veri depoları.
-   */
-  std::tuple<ecs::SparseSet<Pose>, ecs::SparseSet<Motion>,
-             ecs::SparseSet<MassProps>, ecs::SparseSet<Material>,
-             ecs::SparseSet<BodyState>, ecs::SparseSet<Linkage>,
-             ecs::SparseSet<ecs::ColliderData>,
-             ecs::SparseSet<collision::DistanceConstraint>,
-             ecs::SparseSet<collision::RevoluteConstraint>>
-      mComponents;
+template <typename... Ts>
+struct MapToSparseSet<std::tuple<Ts...>> {
+  using type = std::tuple<ecs::SparseSet<Ts>...>;
+};
+
+/**
+ * @class BasicRegistry
+ * @brief Belirtilen bileşen listesiyle ECS veritabanını yöneten şablon sınıf.
+ * @details Varlıkların yaşam döngüsünü ve bileşenlerini kontrol eder. Ayrıca
+ * sahnenin durumunu kaydetme (snapshot) ve geri yükleme özelliklerini barındırır.
+ * Bileşen ekleme, çıkarma, temizleme ve snapshot işlemleri tip listesi üzerinden
+ * otomatik yürütülür.
+ */
+template <typename ComponentsTuple = ComponentTypes>
+class BasicRegistry {
+public:
+  using ComponentsList = ComponentsTuple;
+  using SnapshotType = BasicSnapshot<ComponentsTuple>;
+
+  template <typename T>
+  static constexpr bool isRegistered = TupleContains<T, ComponentsTuple>::value;
+
+private:
+  ecs::EntityManager mEntityManager; ///< Varlıkların (entity) kimliklerini ve yaşam döngüsünü yönetir.
+  typename MapToSparseSet<ComponentsTuple>::type mComponents; ///< Tip listesinden otomatik oluşturulan bileşen depoları.
+
+  template <typename... Ts>
+  static auto initComponentPools(memory::MemoryManager &mm, std::type_identity<std::tuple<Ts...>>) {
+    return std::tuple<ecs::SparseSet<Ts>...>(ecs::SparseSet<Ts>(mm)...);
+  }
 
 public:
   /**
-   * @brief Kayıt defterini ve bileşen havuzlarını bellek yöneticisiyle
-   * başlatır.
+   * @brief Kayıt defterini ve bileşen havuzlarını bellek yöneticisiyle başlatır.
    */
-  explicit Registry(memory::MemoryManager &mm)
+  explicit BasicRegistry(memory::MemoryManager &mm)
       : mEntityManager(mm),
-        mComponents(ecs::SparseSet<Pose>(mm), ecs::SparseSet<Motion>(mm),
-                    ecs::SparseSet<MassProps>(mm), ecs::SparseSet<Material>(mm),
-                    ecs::SparseSet<BodyState>(mm), ecs::SparseSet<Linkage>(mm),
-                    ecs::SparseSet<ecs::ColliderData>(mm),
-                    ecs::SparseSet<collision::DistanceConstraint>(mm),
-                    ecs::SparseSet<collision::RevoluteConstraint>(mm)) {}
+        mComponents(initComponentPools(mm, std::type_identity<ComponentsTuple>{})) {}
 
   /// @name Varlık (Entity) Yönetimi
   /// @{
@@ -88,29 +90,22 @@ public:
   }
 
   /**
-   * @brief Bir varlığı ve ona bağlı olan tüm bileşenleri sistemden tamamen
-   * siler.
+   * @brief Bir varlığı ve ona bağlı olan tüm bileşenleri sistemden tamamen siler.
+   * @details ComponentTypes listesindeki tüm bileşen havuzları fold expression ile otomatik taranır.
    * @param entity Yok edilecek varlık.
    */
   void destroyEntity(ecs::Entity entity) {
     if (mEntityManager.isAlive(entity)) {
-      removeIfExists<Pose>(entity);
-      removeIfExists<Motion>(entity);
-      removeIfExists<MassProps>(entity);
-      removeIfExists<Material>(entity);
-      removeIfExists<BodyState>(entity);
-      removeIfExists<Linkage>(entity);
-      removeIfExists<ecs::ColliderData>(entity);
-      removeIfExists<collision::DistanceConstraint>(entity);
-      removeIfExists<collision::RevoluteConstraint>(entity);
-
+      auto removeAll = [&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+        (removeIfExists<Ts>(entity), ...);
+      };
+      removeAll(std::type_identity<ComponentsTuple>{});
       mEntityManager.destroyEntity(entity);
     }
   }
 
   /**
-   * @brief Belirtilen varlığın sistemde hala var olup olmadığını (silinip
-   * silinmediğini) kontrol eder.
+   * @brief Belirtilen varlığın sistemde hala var olup olmadığını kontrol eder.
    * @param entity Kontrol edilecek varlık.
    * @return Varlık yaşıyorsa true, aksi halde false.
    */
@@ -125,27 +120,18 @@ public:
 
   /**
    * @brief Sahnenin o anki tam durumunu kopyalar ve kaydeder.
-   * @details Geri sarma (rewind), tekrar oynatma veya oyun kaydetme
-   * mekanizmaları için kullanılır.
+   * @details Tüm bileşen havuzları tip listesi üzerinden otomatik olarak kaydedilir.
    * @return Kaydedilmiş sahne durumu (Snapshot).
    */
-  [[nodiscard]] Snapshot save() const {
-    Snapshot snap;
+  [[nodiscard]] SnapshotType save() const {
+    SnapshotType snap;
     snap.entityManagerState = mEntityManager.save();
-    snap.poses = std::get<ecs::SparseSet<Pose>>(mComponents).save();
-    snap.motions = std::get<ecs::SparseSet<Motion>>(mComponents).save();
-    snap.massProps = std::get<ecs::SparseSet<MassProps>>(mComponents).save();
-    snap.materials = std::get<ecs::SparseSet<Material>>(mComponents).save();
-    snap.bodyStates = std::get<ecs::SparseSet<BodyState>>(mComponents).save();
-    snap.linkages = std::get<ecs::SparseSet<Linkage>>(mComponents).save();
-    snap.colliders =
-        std::get<ecs::SparseSet<ecs::ColliderData>>(mComponents).save();
-    snap.distanceConstraints =
-        std::get<ecs::SparseSet<collision::DistanceConstraint>>(mComponents)
-            .save();
-    snap.revoluteConstraints =
-        std::get<ecs::SparseSet<collision::RevoluteConstraint>>(mComponents)
-            .save();
+    auto saveAll = [&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+      snap.componentStates = std::make_tuple(
+          std::get<ecs::SparseSet<Ts>>(mComponents).save()...
+      );
+    };
+    saveAll(std::type_identity<ComponentsTuple>{});
     return snap;
   }
 
@@ -153,20 +139,13 @@ public:
    * @brief Daha önceden kaydedilmiş bir durumu (Snapshot) ECS'ye geri yükler.
    * @param snap Yüklenecek sahne durumu.
    */
-  void load(const Snapshot &snap) {
+  void load(const SnapshotType &snap) {
     mEntityManager.load(snap.entityManagerState);
-    std::get<ecs::SparseSet<Pose>>(mComponents).load(snap.poses);
-    std::get<ecs::SparseSet<Motion>>(mComponents).load(snap.motions);
-    std::get<ecs::SparseSet<MassProps>>(mComponents).load(snap.massProps);
-    std::get<ecs::SparseSet<Material>>(mComponents).load(snap.materials);
-    std::get<ecs::SparseSet<BodyState>>(mComponents).load(snap.bodyStates);
-    std::get<ecs::SparseSet<Linkage>>(mComponents).load(snap.linkages);
-    std::get<ecs::SparseSet<ecs::ColliderData>>(mComponents)
-        .load(snap.colliders);
-    std::get<ecs::SparseSet<collision::DistanceConstraint>>(mComponents)
-        .load(snap.distanceConstraints);
-    std::get<ecs::SparseSet<collision::RevoluteConstraint>>(mComponents)
-        .load(snap.revoluteConstraints);
+    auto loadAll = [&]<typename... Ts>(std::type_identity<std::tuple<Ts...>>) {
+      (std::get<ecs::SparseSet<Ts>>(mComponents).load(
+          std::get<typename ecs::SparseSet<Ts>::State>(snap.componentStates)), ...);
+    };
+    loadAll(std::type_identity<ComponentsTuple>{});
   }
 
   /// @}
@@ -176,12 +155,13 @@ public:
 
   /**
    * @brief Bir varlığa yeni bir bileşen ekler.
-   * @tparam T Eklenecek bileşenin türü (örn. Pose, Motion).
+   * @tparam T Eklenecek bileşenin türü.
    * @param entity Bileşenin ekleneceği varlık.
    * @param component Eklenecek bileşen verisi.
    */
   template <typename T>
   void addComponent(ecs::Entity entity, const T &component) {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     std::get<ecs::SparseSet<T>>(mComponents).addComponent(entity, component);
   }
 
@@ -191,6 +171,7 @@ public:
    * @param entity İşlem yapılacak varlık.
    */
   template <typename T> void removeComponent(ecs::Entity entity) {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     std::get<ecs::SparseSet<T>>(mComponents).removeComponent(entity);
   }
 
@@ -202,6 +183,7 @@ public:
    */
   template <typename T>
   [[nodiscard]] bool hasComponent(ecs::Entity entity) const {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     return std::get<ecs::SparseSet<T>>(mComponents).hasComponent(entity);
   }
 
@@ -212,27 +194,28 @@ public:
    * @return İlgili bileşene ait veri referansı.
    */
   template <typename T> [[nodiscard]] T &getComponent(ecs::Entity entity) {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     return std::get<ecs::SparseSet<T>>(mComponents).getData(entity);
   }
 
   template <typename T>
   [[nodiscard]] const T &getComponent(ecs::Entity entity) const {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     return std::get<ecs::SparseSet<T>>(mComponents).getData(entity);
   }
 
   /**
-   * @brief Belirli bir bileşen türüne ait tüm verilerin tutulduğu havuza (veri
-   * dizisine) erişir.
-   * @details Genellikle sistemlerin (örneğin fizik sisteminin) tüm ilgili
-   * varlıkları tek bir döngüde hızlıca işlemesi için kullanılır.
+   * @brief Belirli bir bileşen türüne ait tüm verilerin tutulduğu havuza (veri dizisine) erişir.
    * @tparam T İstek yapılan bileşen türü.
    * @return Bileşen veri havuzuna referans.
    */
   template <typename T> [[nodiscard]] auto &getComponentPool() {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     return std::get<ecs::SparseSet<T>>(mComponents);
   }
 
   template <typename T> [[nodiscard]] const auto &getComponentPool() const {
+    static_assert(isRegistered<T>, "Component type is not in registered ComponentTypes list!");
     return std::get<ecs::SparseSet<T>>(mComponents);
   }
 
@@ -240,9 +223,7 @@ public:
 
 private:
   /**
-   * @brief Varlık silinirken içeride kalan parçaları temizleyen yardımcı
-   * fonksiyon.
-   * @details Varlıkta bu bileşen varsa siler, yoksa bir şey yapmaz.
+   * @brief Varlık silinirken bileşen varsa kaldıran yardımcı fonksiyon.
    */
   template <typename T> void removeIfExists(ecs::Entity entity) {
     if (hasComponent<T>(entity)) {
@@ -250,5 +231,7 @@ private:
     }
   }
 };
+
+using Registry = BasicRegistry<ComponentTypes>;
 
 } // namespace Baryon::Core

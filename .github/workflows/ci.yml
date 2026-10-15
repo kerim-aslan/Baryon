@@ -1,0 +1,54 @@
+name: Baryon CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up GCC 14
+      uses: egor-tensin/setup-gcc@v1
+      with:
+        version: 14
+        platform: x64
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DBARYON_BUILD_DEBUGGER=OFF
+
+    - name: Build
+      run: |
+        cmake --build build -j$(nproc)
+
+    - name: Run Unit Tests (Fast CI)
+      run: |
+        ctest --test-dir build -LE perf --output-on-failure
+
+    - name: Compile and Run README Snippet
+      run: |
+        python3 -c "
+        import re, subprocess, os
+        for md_path in ['baryon/README.md', 'Readme.md']:
+            if not os.path.exists(md_path): continue
+            content = open(md_path, encoding='utf-8').read()
+            match = re.search(r'```cpp\n(.*?)```', content, re.DOTALL)
+            assert match, f'No C++ block in {md_path}'
+            code = match.group(1)
+            filename = 'temp_snippet.cpp'
+            open(filename, 'w', encoding='utf-8').write(code)
+            res = subprocess.run(['g++', '-std=c++23', '-fsyntax-only', '-Ibaryon/include', filename], capture_output=True, text=True)
+            print(f'Checking {md_path}: returncode={res.returncode}')
+            if res.returncode != 0:
+                print(res.stderr)
+                exit(1)
+            os.remove(filename)
+        print('All README snippets compiled successfully!')
+        "

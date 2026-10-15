@@ -17,11 +17,12 @@
  */
 
 #pragma once
-#include <iostream>
+
 #include <memory>
+#include <sstream>
 #include <string>
 #include <unordered_map>
-
+#include <utility>
 
 namespace Baryon::Debug {
 
@@ -40,7 +41,7 @@ private:
   bool m_globalEnable = true;
 
   DebugManager() {
-    // By default, turn everything off except GENERAL
+    // Varsayılan olarak GENERAL hariç tüm detaylı loglar kapalıdır
     m_categoryStates[LogCategory::COLLISION_NARROW] = false;
     m_categoryStates[LogCategory::COLLISION_BROAD] = false;
     m_categoryStates[LogCategory::SOLVER_IMPULSE] = false;
@@ -60,18 +61,25 @@ public:
     m_categoryStates[cat] = state;
   }
 
-  template <typename... Args> void log(LogCategory cat, Args... args) {
+  [[nodiscard]] bool isCategoryEnabled(LogCategory cat) const {
     if (!m_globalEnable)
-      return;
-    if (!m_categoryStates[cat])
-      return;
-
-    std::cout << getCategoryPrefix(cat);
-    (std::cout << ... << args) << "\n";
+      return false;
+    auto it = m_categoryStates.find(cat);
+    return (it != m_categoryStates.end()) ? it->second : false;
   }
 
-private:
-  std::string getCategoryPrefix(LogCategory cat) {
+  void outputMessage(LogCategory cat, const std::string &message);
+
+  template <typename... Args> void log(LogCategory cat, Args &&...args) {
+    if (!isCategoryEnabled(cat))
+      return;
+
+    std::ostringstream oss;
+    (oss << ... << std::forward<Args>(args));
+    outputMessage(cat, oss.str());
+  }
+
+  std::string getCategoryPrefix(LogCategory cat) const {
     switch (cat) {
     case LogCategory::COLLISION_NARROW:
       return "[NARROW-PHASE] ";
@@ -93,18 +101,57 @@ private:
 
 } // namespace Baryon::Debug
 
+// Log makroları: Kategori veya global loglama kapalıysa argümanlar KESİNLİKLE hesaplanmaz.
 #define BARYON_LOG_NARROW(...)                                                 \
-  Baryon::Debug::DebugManager::get().log(                                      \
-      Baryon::Debug::LogCategory::COLLISION_NARROW, __VA_ARGS__)
+  do {                                                                         \
+    if (::Baryon::Debug::DebugManager::get().isCategoryEnabled(                \
+            ::Baryon::Debug::LogCategory::COLLISION_NARROW)) {                 \
+      ::Baryon::Debug::DebugManager::get().log(                                \
+          ::Baryon::Debug::LogCategory::COLLISION_NARROW, __VA_ARGS__);        \
+    }                                                                          \
+  } while (0)
+
 #define BARYON_LOG_IMPULSE(...)                                                \
-  Baryon::Debug::DebugManager::get().log(                                      \
-      Baryon::Debug::LogCategory::SOLVER_IMPULSE, __VA_ARGS__)
+  do {                                                                         \
+    if (::Baryon::Debug::DebugManager::get().isCategoryEnabled(                \
+            ::Baryon::Debug::LogCategory::SOLVER_IMPULSE)) {                   \
+      ::Baryon::Debug::DebugManager::get().log(                                \
+          ::Baryon::Debug::LogCategory::SOLVER_IMPULSE, __VA_ARGS__);          \
+    }                                                                          \
+  } while (0)
+
 #define BARYON_LOG_POS(...)                                                    \
-  Baryon::Debug::DebugManager::get().log(                                      \
-      Baryon::Debug::LogCategory::SOLVER_POSITION, __VA_ARGS__)
+  do {                                                                         \
+    if (::Baryon::Debug::DebugManager::get().isCategoryEnabled(                \
+            ::Baryon::Debug::LogCategory::SOLVER_POSITION)) {                  \
+      ::Baryon::Debug::DebugManager::get().log(                                \
+          ::Baryon::Debug::LogCategory::SOLVER_POSITION, __VA_ARGS__);         \
+    }                                                                          \
+  } while (0)
+
 #define BARYON_LOG_SLEEP(...)                                                  \
-  Baryon::Debug::DebugManager::get().log(                                      \
-      Baryon::Debug::LogCategory::ISLAND_SLEEP, __VA_ARGS__)
+  do {                                                                         \
+    if (::Baryon::Debug::DebugManager::get().isCategoryEnabled(                \
+            ::Baryon::Debug::LogCategory::ISLAND_SLEEP)) {                     \
+      ::Baryon::Debug::DebugManager::get().log(                                \
+          ::Baryon::Debug::LogCategory::ISLAND_SLEEP, __VA_ARGS__);            \
+    }                                                                          \
+  } while (0)
+
+#define BARYON_LOG_BROAD(...)                                                  \
+  do {                                                                         \
+    if (::Baryon::Debug::DebugManager::get().isCategoryEnabled(                \
+            ::Baryon::Debug::LogCategory::COLLISION_BROAD)) {                  \
+      ::Baryon::Debug::DebugManager::get().log(                                \
+          ::Baryon::Debug::LogCategory::COLLISION_BROAD, __VA_ARGS__);         \
+    }                                                                          \
+  } while (0)
+
 #define BARYON_LOG_INFO(...)                                                   \
-  Baryon::Debug::DebugManager::get().log(Baryon::Debug::LogCategory::GENERAL,  \
-                                         __VA_ARGS__)
+  do {                                                                         \
+    if (::Baryon::Debug::DebugManager::get().isCategoryEnabled(                \
+            ::Baryon::Debug::LogCategory::GENERAL)) {                          \
+      ::Baryon::Debug::DebugManager::get().log(                                \
+          ::Baryon::Debug::LogCategory::GENERAL, __VA_ARGS__);                 \
+    }                                                                          \
+  } while (0)

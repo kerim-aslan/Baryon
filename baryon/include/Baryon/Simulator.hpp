@@ -194,6 +194,11 @@ public:
     [[nodiscard]] const auto& getManifolds() const { return mCollisionSystem.getManifolds(); }
 
     /**
+     * @brief Uzaysal bölümleme sistemine doğrudan salt okunur erişim sağlar.
+     */
+    [[nodiscard]] const systems::SpatialPartitioning& getSpatialPartitioning() const { return mSpatialPartitioning; }
+
+    /**
      * @brief Çarpışma ve tetikleyici olaylarını dinleyecek kullanıcı arayüzünü bağlar.
      */
     void setCollisionListener(CollisionListener* listener) {
