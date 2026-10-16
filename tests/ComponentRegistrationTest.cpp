@@ -85,5 +85,42 @@ int main() {
     CHECK_MSG(reg.hasComponent<CustomGameComponent>(e2), "e2 CustomGameComponent'e sahip olmali");
     CHECK_MSG(reg.getComponent<CustomGameComponent>(e2).score == 250, "e2 score 250 olmali");
 
-    reportAndExit();
+    // 6. 16-bit Entity Generation and Slot Recycling Test
+    {
+        std::cout << "\n--- 16-bit Entity Generation and Recycling Test ---" << std::endl;
+        ecs::Entity originalEntity = reg.createEntity();
+        reg.addComponent<Pose>(originalEntity, Pose(Vector3(0, 1, 0), Quaternion::identity()));
+
+        CHECK_MSG(reg.isAlive(originalEntity), "Created entity must be alive!");
+        CHECK_MSG(reg.hasComponent<Pose>(originalEntity), "Created entity must have Pose component!");
+
+        reg.destroyEntity(originalEntity);
+        CHECK_MSG(!reg.isAlive(originalEntity), "Destroyed entity must not be alive!");
+        CHECK_MSG(!reg.hasComponent<Pose>(originalEntity), "Destroyed entity must not report having component!");
+
+        static_assert(sizeof(decltype(ecs::EntityManager::getGeneration(originalEntity))) == 2,
+                      "Entity generation must be 16-bit (uint16_t)");
+
+        // Aynı slotu 300 kez (8-bit sınırının ötesinde) geri dönüştür
+        ecs::Entity latestEntity = originalEntity;
+        for (int i = 0; i < 300; ++i) {
+            latestEntity = reg.createEntity();
+            reg.destroyEntity(latestEntity);
+        }
+
+        // Şimdi aynı slota yeni bir varlık oluştur
+        ecs::Entity newEntityInSameSlot = reg.createEntity();
+        reg.addComponent<Pose>(newEntityInSameSlot, Pose(Vector3(5, 5, 5), Quaternion::identity()));
+
+        bool oldHandleAlive = reg.isAlive(originalEntity);
+        bool oldHandleHasComp = reg.hasComponent<Pose>(originalEntity);
+        std::cout << "  -> 300 recycling cycles: oldHandle alive: " << (oldHandleAlive ? "true" : "false")
+                  << " (Expected: false), hasComponent: " << (oldHandleHasComp ? "true" : "false") << " (Expected: false)" << std::endl;
+
+        CHECK_MSG(!oldHandleAlive, "Old entity handle must remain dead even after 300 recycles of the same slot!");
+        CHECK_MSG(!oldHandleHasComp, "Old entity handle must NOT report having components belonging to new entity in same slot!");
+        CHECK_MSG(reg.isAlive(newEntityInSameSlot), "New entity in same slot must be alive!");
+    }
+
+    return reportAndExit();
 }

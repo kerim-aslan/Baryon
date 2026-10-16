@@ -53,7 +53,7 @@ struct Entity {
 class EntityManager {
 private:
     std::pmr::deque<uint32_t> mFreeIndices;   ///< Silinip geri dönüşüme atılmış müsait numaralar kuyruğu.
-    std::pmr::vector<uint8_t> mGenerations;   ///< Her bir numaranın kaçıncı versiyonda (nesilde) olduğunu tutan dizi.
+    std::pmr::vector<uint16_t> mGenerations;  ///< Her bir numaranın kaçıncı versiyonda (nesilde) olduğunu tutan dizi (16-bit).
     uint32_t mCurrentIndex{0};                ///< Geri dönüşümde numara yoksa verilecek bir sonraki yeni numara.
 
 public:
@@ -78,7 +78,7 @@ public:
             index = mCurrentIndex++;
             mGenerations.push_back(0);
         }
-        return Entity{ (static_cast<uint32_t>(mGenerations[index]) << 24) | index };
+        return Entity{ (static_cast<uint32_t>(mGenerations[index]) << 16) | (index & 0x0000FFFF) };
     }
 
     /**
@@ -102,24 +102,24 @@ public:
      */
     [[nodiscard]] bool isAlive(Entity entity) const {
         uint32_t index = getIndex(entity);
-        uint8_t generation = getGeneration(entity);
+        uint16_t generation = getGeneration(entity);
         return index < mGenerations.size() && mGenerations[index] == generation;
     }
 
     /**
      * @brief Varlık kimliğinin içinden sadece sıra numarasını (indeksi) ayıklar.
-     * @details Motorun iç yapılarındaki dizilere erişmek için kullanılır.
+     * @details Motorun iç yapılarındaki dizilere erişmek için kullanılır (16-bit indeks, 0-65535).
      */
     [[nodiscard]] static constexpr uint32_t getIndex(Entity entity) {
-        return entity.id & 0x00FFFFFF; 
+        return entity.id & 0x0000FFFF; 
     }
 
     /**
      * @brief Varlık kimliğinin içinden versiyon (nesil) bilgisini ayıklar.
-     * @details Varlığın silinip silinmediğini doğrulamak için kullanılır.
+     * @details Varlığın silinip silinmediğini doğrulamak için kullanılır (16-bit nesil).
      */
-    [[nodiscard]] static constexpr uint8_t getGeneration(Entity entity) {
-        return static_cast<uint8_t>((entity.id & 0xFF000000) >> 24); 
+    [[nodiscard]] static constexpr uint16_t getGeneration(Entity entity) {
+        return static_cast<uint16_t>((entity.id & 0xFFFF0000) >> 16); 
     }
 
     /** 
@@ -128,7 +128,7 @@ public:
      */
     struct State {
         std::vector<uint32_t> freeIndices;
-        std::vector<uint8_t> generations;
+        std::vector<uint16_t> generations;
         uint32_t currentIndex;
     };
 
@@ -138,7 +138,7 @@ public:
     [[nodiscard]] State save() const {
         return State{
             std::vector<uint32_t>(mFreeIndices.begin(), mFreeIndices.end()),
-            std::vector<uint8_t>(mGenerations.begin(), mGenerations.end()),
+            std::vector<uint16_t>(mGenerations.begin(), mGenerations.end()),
             mCurrentIndex
         };
     }
