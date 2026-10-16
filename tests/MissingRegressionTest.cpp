@@ -156,10 +156,34 @@ void testAngularVelocityResponse() {
     CHECK_MSG((wCap - expectedWCap).length() < 1e-4f, "Kapsul acisal hiz yaniti invI * angImpulse ile eslesmeli");
 }
 
+void testMaxSubStepsCatchupAndConfigurable() {
+    std::cout << "\n--- MaxSubSteps Catchup and Configurable Verification ---" << std::endl;
+    Simulator simDefault;
+    CHECK_MSG(simDefault.getMaxSubSteps() == 8, "Varsayilan maxSubSteps 8 olmali");
+    simDefault.setMaxSubSteps(4);
+    CHECK_MSG(simDefault.getMaxSubSteps() == 4, "setMaxSubSteps(4) sonrasi getMaxSubSteps 4 olmali");
+
+    Simulator simCatchup;
+    simCatchup.setAccelerationField(Vector3(0, -9.81f, 0));
+    Body body = simCatchup.createBody(Pose(Vector3(0, 100.0f, 0)), CollisionShape(SphereShape(0.5f)));
+    (void)body.setBodyType(Core::BodyType::Dynamic);
+    body.setCCD(false);
+
+    // 20 kare @ 0.05s = 1.0 saniye gerçek zaman
+    for (int i = 0; i < 20; ++i) {
+        simCatchup.step(0.05f);
+    }
+    float finalY = body.getPosition().value().y;
+    float dropDist = 100.0f - finalY;
+    std::cout << "Drop distance after 1.0s real-time: " << dropDist << "m (Expected >= 4.0m, was ~3.27m with maxSubSteps=2)" << std::endl;
+    CHECK_MSG(dropDist >= 4.0f, "Simulation slowed down due to maxSubSteps clamp (catchup failed)");
+}
+
 int main() {
     testConvexHullCubeOnGround();
     testRotatedMeshCollision();
     testCapsuleGroundEntityOrderSymmetry();
     testAngularVelocityResponse();
+    testMaxSubStepsCatchupAndConfigurable();
     return reportAndExit();
 }

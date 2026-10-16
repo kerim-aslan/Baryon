@@ -74,6 +74,7 @@ private:
 
     float mFixedTimeStep{1.0f / 60.0f};         ///< Sabit fizik adım boyutu (Varsayılan: 16.67ms).
     float mAccumulator{0.0f};                    ///< Kareler arası zamanı dengeleyen biriktirici.
+    int mMaxSubSteps{8};                         ///< Tek bir karede izin verilen maksimum alt adım sayısı.
     
 public:
     /**
@@ -93,6 +94,21 @@ public:
      * @param deltaTime Son kareden bu yana geçen gerçek süre (saniye).
      */
     void step(float deltaTime);
+
+    /**
+     * @brief Tek bir karede çalıştırılabilecek maksimum alt adım sayısını ayarlar.
+     * @param maxSubSteps Maksimum alt adım sayısı (varsayılan 8).
+     */
+    void setMaxSubSteps(int maxSubSteps) {
+        mMaxSubSteps = std::max(1, maxSubSteps);
+    }
+
+    /**
+     * @brief Mevcut maksimum alt adım sayısını döndürür.
+     */
+    [[nodiscard]] int getMaxSubSteps() const {
+        return mMaxSubSteps;
+    }
 
     /**
      * @brief Dünyaya bir "lazer" (ışın) fırlatarak objeleri arar.

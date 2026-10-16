@@ -215,11 +215,11 @@ void Simulator::step(float deltaTime) {
 	mAccumulator += deltaTime;
 
 	// Ölüm Spirali (Spiral of Death) Koruması:
-	// Tek bir karede en fazla 2 alt adım çalıştırılır. Aşırı gecikmeler birikip sonraki kareleri kitlemez.
-	int maxSubSteps = 2;
-	while (mAccumulator >= mFixedTimeStep && maxSubSteps > 0) {
+	// Tek bir karede en fazla mMaxSubSteps alt adım çalıştırılır. Aşırı gecikmeler birikip sonraki kareleri kitlemez.
+	int subStepsLeft = mMaxSubSteps;
+	while (mAccumulator >= mFixedTimeStep && subStepsLeft > 0) {
 		float dt = mFixedTimeStep;
-		maxSubSteps--;
+		subStepsLeft--;
 
 		// 1. Dinamik kuvvetleri hıza aktar
 		mIntegrator.integrateVelocities(dt);
@@ -265,7 +265,7 @@ void Simulator::step(float deltaTime) {
 	}
 
 	// Eğer kare çok uzadıysa birikintiyi sıfırla (gecikme zincirleme devam etmesin)
-	if (maxSubSteps == 0) {
+	if (subStepsLeft == 0) {
 		mAccumulator = 0.0f;
 	}
 }
