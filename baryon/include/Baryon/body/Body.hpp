@@ -35,8 +35,9 @@ namespace Baryon {
  * @brief Fizik işlemlerinde oluşabilecek hata kodları.
  */
 enum class PhysicsError {
-  EntityDead,      ///< Varlık silinmiş veya geçersiz.
-  ComponentMissing ///< Varlıkta istenilen bileşen bulunamadı.
+  EntityDead,       ///< Varlık silinmiş veya geçersiz.
+  ComponentMissing, ///< Varlıkta istenilen bileşen bulunamadı.
+  InvalidValue      ///< Geçersiz parametre değeri.
 };
 
 /**
@@ -186,19 +187,32 @@ public:
   }
 
   /**
-   * @brief Cismin kütlesini ayarlar ve ters kütle oranını günceller.
+   * @brief Cismin kütlesini ayarlar ve ters kütle ile eylemsizlik tensörünü ölçekler.
    * @param mass Yeni kütle (kg).
    */
-  std::expected<Body, PhysicsError> setMass(float mass) {
+  [[nodiscard]] std::expected<Body, PhysicsError> setMass(float mass) {
     if (!isActive() || !mRegistry->hasComponent<Core::MassProps>(mEntity) ||
         !mRegistry->hasComponent<Core::BodyState>(mEntity))
       return std::unexpected(PhysicsError::EntityDead);
+    if (mass <= 0.0f)
+      return std::unexpected(PhysicsError::InvalidValue);
     auto &massProps = mRegistry->getComponent<Core::MassProps>(mEntity);
     auto &state = mRegistry->getComponent<Core::BodyState>(mEntity);
+    float oldMass = massProps.mass;
     massProps.mass = mass;
 
     if (state.type == Core::BodyType::Dynamic) {
-      massProps.inverseMass = (mass > 0) ? 1.0f / mass : 0.0f;
+      massProps.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    }
+
+    // Eylemsizlik tensörünü yeni/eski kütle oranında ölçekle
+    if (oldMass > 0.0f && mass > 0.0f) {
+      float scale = mass / oldMass;
+      massProps.localInertiaTensor = massProps.localInertiaTensor * scale;
+      massProps.inverseLocalInertiaTensor = massProps.localInertiaTensor.getInverse();
+      if (state.type == Core::BodyType::Dynamic) {
+        massProps.inverseInertiaTensor = massProps.inverseLocalInertiaTensor;
+      }
     }
     return *this;
   }
@@ -207,7 +221,7 @@ public:
    * @brief Cismin yerel eylemsizlik tensörünü ayarlar.
    * @param I Yeni yerel eylemsizlik matrisi (3x3).
    */
-  std::expected<Body, PhysicsError> setLocalInertiaTensor(const Matrix3x3 &I) {
+  [[nodiscard]] std::expected<Body, PhysicsError> setLocalInertiaTensor(const Matrix3x3 &I) {
     if (!isActive() || !mRegistry->hasComponent<Core::MassProps>(mEntity))
       return std::unexpected(PhysicsError::EntityDead);
     auto &massProps = mRegistry->getComponent<Core::MassProps>(mEntity);

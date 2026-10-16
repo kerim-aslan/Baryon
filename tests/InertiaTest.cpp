@@ -68,8 +68,33 @@ void testCapsuleInertia() {
     CHECK_MSG(errIz <= 0.02f, "Capsule Iz +-2% icinde olmali");
 }
 
+void testSetMassInertiaScaling() {
+    std::cout << "\n--- SetMass Inertia Scaling Verification ---" << std::endl;
+    Simulator sim;
+    sim.setAccelerationField(Vector3(0, 0, 0));
+
+    Body body = sim.createBody(Pose(Vector3(0, 0, 0)), CollisionShape(BoxShape(Vector3(0.5f, 0.5f, 0.5f))));
+    (void)body.setBodyType(Core::BodyType::Dynamic);
+
+    Matrix3x3 initialI = body.getLocalInertiaTensor().value();
+    (void)body.setMass(10.0f); // 10 katına çıkar
+
+    Matrix3x3 newI = body.getLocalInertiaTensor().value();
+    std::cout << "Initial I_xx: " << initialI[0].x << ", New I_xx: " << newI[0].x << " (Expected: " << initialI[0].x * 10.0f << ")" << std::endl;
+    CHECK_MSG(std::abs(newI[0].x - initialI[0].x * 10.0f) < 1e-4f, "setMass did not rescale localInertiaTensor");
+
+    body.applyAngularImpulse(Vector3(0, 1.0f, 0));
+    Vector3 w = body.getAngularVelocity().value();
+    std::cout << "Angular velocity wy: " << w.y << " (Expected ~0.6 rad/s, observed 6.0 if unscaled)" << std::endl;
+    CHECK_MSG(std::abs(w.y - 0.6f) < 0.1f, "setMass did not rescale inverse inertia tensor for dynamics");
+
+    auto invalidRes = body.setMass(-1.0f);
+    CHECK_MSG(!invalidRes.has_value() && invalidRes.error() == PhysicsError::InvalidValue, "setMass with non-positive mass must return InvalidValue");
+}
+
 int main() {
     testBoxInertia();
     testCapsuleInertia();
+    testSetMassInertiaScaling();
     return reportAndExit();
 }
