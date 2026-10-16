@@ -21,7 +21,9 @@
 #include "Baryon/Core/ComponentTypes.hpp"
 #include "Baryon/ecs/EntityManager.hpp"
 #include "Baryon/ecs/SparseSet.hpp"
+#include "Baryon/collision/ContactManifold.hpp"
 #include <tuple>
+#include <unordered_map>
 
 /**
  * @file Snapshot.hpp
@@ -50,6 +52,10 @@ template <typename ComponentsTuple = ComponentTypes>
 struct BasicSnapshot {
     ecs::EntityManager::State entityManagerState; ///< Varlıkların durumu.
     typename MapToSparseSetState<ComponentsTuple>::type componentStates; ///< Bileşen havuzlarının durumları.
+
+    // B2: Determinizm ve geri sarma için simülatör durumları
+    float accumulator{0.0f};                      ///< Zaman adımı biriktiricisi.
+    std::unordered_map<uint64_t, collision::ContactManifold> manifolds; ///< Warm-start temas manifoldları.
 
     template <typename T>
     [[nodiscard]] const typename ecs::SparseSet<T>::State& getState() const {

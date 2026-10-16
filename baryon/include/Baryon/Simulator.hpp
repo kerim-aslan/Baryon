@@ -257,15 +257,20 @@ public:
      * @return Kaydedilen dünya durumu.
      */
     [[nodiscard]] Core::Snapshot saveSnapshot() const {
-        return mRegistry.save();
+        Core::Snapshot snap = mRegistry.save();
+        snap.accumulator = mAccumulator;
+        snap.manifolds = mCollisionSystem.getManifolds();
+        return snap;
     }
 
     /**
-     * @brief Dünyayı daha önce kaydedilmiş bir duruma geri döndürür.
+     * @brief Dünyayı daha önce kaydedilmiş bir duruma geri döndürür (B2: Deterministik geri yükleme).
      * @param snap Yüklenecek durum kaydı.
      */
     void restoreSnapshot(const Core::Snapshot& snap) {
         mRegistry.load(snap);
+        mAccumulator = snap.accumulator;
+        mCollisionSystem.getManifolds() = snap.manifolds;
         mSpatialPartitioning.rebuildTree();
     }
 

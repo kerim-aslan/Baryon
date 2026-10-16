@@ -207,6 +207,62 @@ void testSimulationSettingsConfiguration() {
     CHECK_MSG(sim.getMaxSubSteps() == 12, "maxSubSteps getter mismatch!");
 }
 
+void testSnapshotDeterminism() {
+    std::cout << "\n--- Bit-level Snapshot Determinism Verification ---" << std::endl;
+
+    Simulator sim;
+    sim.setAccelerationField(Vector3(0, -9.81f, 0));
+
+    Body ground = sim.createBody(Pose(Vector3(0, 0, 0)), CollisionShape(BoxShape(Vector3(20, 1, 20))));
+    (void)ground.setBodyType(Core::BodyType::Static);
+
+    Body box = sim.createBody(Pose(Vector3(0, 3, 0)), CollisionShape(BoxShape(Vector3(0.5f, 0.5f, 0.5f))));
+    (void)box.setBodyType(Core::BodyType::Dynamic);
+    (void)box.setMass(1.0f);
+
+    Body sphere = sim.createBody(Pose(Vector3(0.2f, 5, 0)), CollisionShape(SphereShape(0.4f)));
+    (void)sphere.setBodyType(Core::BodyType::Dynamic);
+    (void)sphere.setMass(1.5f);
+
+    // 25 adım koştur ve snapshot kaydet (0.018f ile accumulator'da artık zaman kalır)
+    for (int i = 0; i < 25; ++i) {
+        sim.step(0.018f);
+    }
+
+    Core::Snapshot savedSnap = sim.saveSnapshot();
+    CHECK_MSG(savedSnap.accumulator > 0.0f, "Snapshot accumulator degerini saklamali");
+
+    for (int i = 0; i < 40; ++i) {
+        sim.step(0.018f);
+    }
+    Vector3 run1BoxPos = box.getPosition().value();
+    Vector3 run1SpherePos = sphere.getPosition().value();
+    Vector3 run1BoxVel = box.getLinearVelocity().value();
+    Vector3 run1SphereVel = sphere.getLinearVelocity().value();
+
+    sim.restoreSnapshot(savedSnap);
+
+    for (int i = 0; i < 40; ++i) {
+        sim.step(0.018f);
+    }
+    Vector3 run2BoxPos = box.getPosition().value();
+    Vector3 run2SpherePos = sphere.getPosition().value();
+    Vector3 run2BoxVel = box.getLinearVelocity().value();
+    Vector3 run2SphereVel = sphere.getLinearVelocity().value();
+
+    std::cout << "  -> Run 1 Box Pos: (" << run1BoxPos.x << ", " << run1BoxPos.y << ", " << run1BoxPos.z << ")" << std::endl;
+    std::cout << "  -> Run 2 Box Pos: (" << run2BoxPos.x << ", " << run2BoxPos.y << ", " << run2BoxPos.z << ")" << std::endl;
+
+    CHECK_MSG(run1BoxPos.x == run2BoxPos.x && run1BoxPos.y == run2BoxPos.y && run1BoxPos.z == run2BoxPos.z,
+              "Bit-level determinism failed for box position after rewind!");
+    CHECK_MSG(run1SpherePos.x == run2SpherePos.x && run1SpherePos.y == run2SpherePos.y && run1SpherePos.z == run2SpherePos.z,
+              "Bit-level determinism failed for sphere position after rewind!");
+    CHECK_MSG(run1BoxVel.x == run2BoxVel.x && run1BoxVel.y == run2BoxVel.y && run1BoxVel.z == run2BoxVel.z,
+              "Bit-level determinism failed for box velocity after rewind!");
+    CHECK_MSG(run1SphereVel.x == run2SphereVel.x && run1SphereVel.y == run2SphereVel.y && run1SphereVel.z == run2SphereVel.z,
+              "Bit-level determinism failed for sphere velocity after rewind!");
+}
+
 int main() {
     testConvexHullCubeOnGround();
     testRotatedMeshCollision();
@@ -214,5 +270,6 @@ int main() {
     testAngularVelocityResponse();
     testMaxSubStepsCatchupAndConfigurable();
     testSimulationSettingsConfiguration();
+    testSnapshotDeterminism();
     return reportAndExit();
 }
