@@ -73,5 +73,9 @@ int main() {
                   "[[nodiscard]] degeri atlandiginda derleyici -Werror ile basarisiz olmali (C9 kurali)");
     }
 
+    // 4. LICENSE dosya adi kontrolu (LICENCE yerine standart LICENSE olmali)
+    CHECK_MSG(fs::exists(SOURCE_ROOT_DIR "/LICENSE") && !fs::exists(SOURCE_ROOT_DIR "/LICENCE"),
+              "LICENSE dosya adi LICENSE (S ile) olmali");
+
     return reportAndExit();
 }
