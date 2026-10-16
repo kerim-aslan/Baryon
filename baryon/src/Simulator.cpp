@@ -45,6 +45,15 @@ Simulator::Simulator() : mRegistry(mMemoryManager),
 						 mCollisionSystem(mRegistry, mSpatialPartitioning),
 						 mSolver(mRegistry),
 						 mIslandSystem(mRegistry) {
+	setSettings(mSettings);
+}
+
+void Simulator::setSettings(const SimulationSettings &settings) {
+	mSettings = settings;
+	mFixedTimeStep = settings.fixedTimeStep;
+	mMaxSubSteps = settings.maxSubSteps;
+	mIslandSystem.setSleepThresholds(settings.sleepLinearThreshold, settings.sleepAngularThreshold, settings.timeToSleep);
+	mSpatialPartitioning.setVelocityExpansion(settings.broadPhaseVelocityExpansion);
 }
 
 /**
@@ -246,8 +255,8 @@ void Simulator::step(float deltaTime) {
 		// 4. Etkileşim halindeki nesne gruplarını ayır (aktif adaları kur)
 		auto islands = mIslandSystem.buildIslands(mCollisionSystem.getManifolds());
 
-		// 5. Her nesne grubu için fiziksel tepkileri hesapla (12 hız, 4 pozisyon iterasyonu)
-		mSolver.executeIslands(islands, mCollisionSystem.getManifolds(), dt, 12, 4);
+		// 5. Her nesne grubu için fiziksel tepkileri hesapla
+		mSolver.executeIslands(islands, mCollisionSystem.getManifolds(), dt, mSettings.velocityIterations, mSettings.positionIterations);
 
 		// 6. Güncellenmiş hızları kullanarak konumları değiştir
 		mIntegrator.integratePositions(dt);

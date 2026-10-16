@@ -1,5 +1,6 @@
 #include "TestCommon.hpp"
 #include <Baryon/Simulator.hpp>
+#include <Baryon/SimulationSettings.hpp>
 #include <Baryon/collision/CollisionShape.hpp>
 #include <iostream>
 #include <cmath>
@@ -179,11 +180,39 @@ void testMaxSubStepsCatchupAndConfigurable() {
     CHECK_MSG(dropDist >= 4.0f, "Simulation slowed down due to maxSubSteps clamp (catchup failed)");
 }
 
+void testSimulationSettingsConfiguration() {
+    std::cout << "\n--- SimulationSettings Configuration Verification ---" << std::endl;
+
+    Simulator sim;
+    SimulationSettings settings;
+    settings.velocityIterations = 20;
+    settings.positionIterations = 8;
+    settings.broadPhaseVelocityExpansion = 0.05f;
+    settings.maxSubSteps = 12;
+    settings.sleepLinearThreshold = 0.01f;
+    settings.sleepAngularThreshold = 0.02f;
+    settings.timeToSleep = 0.8f;
+
+    sim.setSettings(settings);
+
+    const auto& s = sim.getSettings();
+    std::cout << "  -> velocityIterations: " << s.velocityIterations << " (Expected: 20)" << std::endl;
+    std::cout << "  -> positionIterations: " << s.positionIterations << " (Expected: 8)" << std::endl;
+    std::cout << "  -> broadPhaseVelocityExpansion: " << s.broadPhaseVelocityExpansion << " (Expected: 0.05)" << std::endl;
+    std::cout << "  -> maxSubSteps: " << sim.getMaxSubSteps() << " (Expected: 12)" << std::endl;
+
+    CHECK_MSG(s.velocityIterations == 20, "velocityIterations not updated in settings!");
+    CHECK_MSG(s.positionIterations == 8, "positionIterations not updated in settings!");
+    CHECK_MSG(std::abs(s.broadPhaseVelocityExpansion - 0.05f) < 1e-5f, "broadPhaseVelocityExpansion not updated!");
+    CHECK_MSG(sim.getMaxSubSteps() == 12, "maxSubSteps getter mismatch!");
+}
+
 int main() {
     testConvexHullCubeOnGround();
     testRotatedMeshCollision();
     testCapsuleGroundEntityOrderSymmetry();
     testAngularVelocityResponse();
     testMaxSubStepsCatchupAndConfigurable();
+    testSimulationSettingsConfiguration();
     return reportAndExit();
 }

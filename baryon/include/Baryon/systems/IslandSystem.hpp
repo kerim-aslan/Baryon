@@ -39,6 +39,9 @@ namespace Baryon::systems {
 class IslandSystem {
 private:
     Core::Registry& mRegistry; ///< ECS kayıt defteri referansı.
+    float mSleepLinearThresholdSq{0.0025f};
+    float mSleepAngularThresholdSq{0.0025f};
+    float mTimeToSleep{0.5f};
 
 public:
     /** 
@@ -46,6 +49,22 @@ public:
      * @param registry ECS kayıt defteri. 
      */
     explicit IslandSystem(Core::Registry& registry);
+
+    /**
+     * @brief Adaların uykuya geçiş eşiklerini ayarlar.
+     * @param linearVelThreshold Uykuya geçiş için maksimum çizgisel hız (m/s).
+     * @param angularVelThreshold Uykuya geçiş için maksimum açısal hız (rad/s).
+     * @param timeToSleep Bu hızların altında kalınması gereken süre (saniye).
+     */
+    void setSleepThresholds(float linearVelThreshold, float angularVelThreshold, float timeToSleep = 0.5f) {
+        mSleepLinearThresholdSq = linearVelThreshold * linearVelThreshold;
+        mSleepAngularThresholdSq = angularVelThreshold * angularVelThreshold;
+        mTimeToSleep = timeToSleep;
+    }
+
+    [[nodiscard]] float getSleepLinearThresholdSq() const { return mSleepLinearThresholdSq; }
+    [[nodiscard]] float getSleepAngularThresholdSq() const { return mSleepAngularThresholdSq; }
+    [[nodiscard]] float getTimeToSleep() const { return mTimeToSleep; }
 
     /**
      * @brief Temas ve kısıtlama grafiğinden aktif adaları (bağlantılı dinamik nesne gruplarını) oluşturur.

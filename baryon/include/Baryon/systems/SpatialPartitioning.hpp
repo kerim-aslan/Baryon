@@ -41,8 +41,12 @@ private:
     Core::Registry& mRegistry;                                     ///< ECS kayıt defteri referansı.
     collision::DynamicAABBTree mTree;                               ///< Uzaydaki nesneleri tutan dinamik AABB ağacı.
     std::vector<std::pair<ecs::Entity, ecs::Entity>> mPotentialCollisions; ///< Gerçek çarpışma testi yapılacak aday çiftlerin listesi.
+    float mVelocityExpansion{0.02f};                               ///< Hızlı nesneler için AABB hız süpürmesi genişletme katsayısı.
 
 public:
+    void setVelocityExpansion(float expansion) { mVelocityExpansion = expansion; }
+    [[nodiscard]] float getVelocityExpansion() const { return mVelocityExpansion; }
+
     /**
      * @brief Uzaysal bölümleme sistemini başlatır.
      * @param registry ECS kayıt defteri.

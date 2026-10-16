@@ -20,6 +20,7 @@
 
 #include "Baryon/memory/MemoryManager.hpp"
 #include "Baryon/Core/Registry.hpp"
+#include "Baryon/SimulationSettings.hpp"
 #include "Baryon/systems/Integrator.hpp"
 #include "Baryon/systems/HierarchySystem.hpp"
 #include "Baryon/systems/SpatialPartitioning.hpp"
@@ -72,6 +73,7 @@ private:
     systems::IslandSystem mIslandSystem;         ///< Optimizasyon ve uyku (sleep) yöneticisi.
     /// @}
 
+    SimulationSettings mSettings;               ///< Simülasyon yapılandırma ayarları.
     float mFixedTimeStep{1.0f / 60.0f};         ///< Sabit fizik adım boyutu (Varsayılan: 16.67ms).
     float mAccumulator{0.0f};                    ///< Kareler arası zamanı dengeleyen biriktirici.
     int mMaxSubSteps{8};                         ///< Tek bir karede izin verilen maksimum alt adım sayısı.
@@ -85,6 +87,17 @@ public:
     // Güvenlik: Motorun merkezi birimleri kopyalanamaz.
     Simulator(const Simulator&) = delete;
     Simulator& operator=(const Simulator&) = delete;
+
+    /**
+     * @brief Simülasyon yapılandırma ayarlarını döndürür.
+     */
+    [[nodiscard]] const SimulationSettings& getSettings() const { return mSettings; }
+    [[nodiscard]] SimulationSettings& getSettings() { return mSettings; }
+
+    /**
+     * @brief Simülasyon ayarlarını günceller ve alt sistemlere iletir.
+     */
+    void setSettings(const SimulationSettings& settings);
     
     /**
      * @brief Fizik dünyasını geçen süre kadar simüle eder.
@@ -100,14 +113,15 @@ public:
      * @param maxSubSteps Maksimum alt adım sayısı (varsayılan 8).
      */
     void setMaxSubSteps(int maxSubSteps) {
-        mMaxSubSteps = std::max(1, maxSubSteps);
+        mSettings.maxSubSteps = std::max(1, maxSubSteps);
+        mMaxSubSteps = mSettings.maxSubSteps;
     }
 
     /**
      * @brief Mevcut maksimum alt adım sayısını döndürür.
      */
     [[nodiscard]] int getMaxSubSteps() const {
-        return mMaxSubSteps;
+        return mSettings.maxSubSteps;
     }
 
     /**
@@ -195,8 +209,24 @@ public:
      * @brief Fizik adımlarının çalışma sıklığını ayarlar.
      * @param timeStep Adım boyutu (Örn: 1.0f/120.0f değeri 120 Hz hız sağlar).
      */
-    void setFixedTimeStep(float timeStep) { mFixedTimeStep = timeStep; }
+    void setFixedTimeStep(float timeStep) {
+        mFixedTimeStep = timeStep;
+        mSettings.fixedTimeStep = timeStep;
+    }
     [[nodiscard]] float getFixedTimeStep() const { return mFixedTimeStep; }
+
+    /**
+     * @brief Adaların ve cisimlerin uykuya geçiş eşiklerini ayarlar.
+     * @param linearVelThreshold Uykuya geçiş için maksimum çizgisel hız (m/s).
+     * @param angularVelThreshold Uykuya geçiş için maksimum açısal hız (rad/s).
+     * @param timeToSleep Bu hızların altında kalınması gereken süre (saniye).
+     */
+    void setSleepThresholds(float linearVelThreshold, float angularVelThreshold, float timeToSleep = 0.5f) {
+        mSettings.sleepLinearThreshold = linearVelThreshold;
+        mSettings.sleepAngularThreshold = angularVelThreshold;
+        mSettings.timeToSleep = timeToSleep;
+        mIslandSystem.setSleepThresholds(linearVelThreshold, angularVelThreshold, timeToSleep);
+    }
 
     /**
      * @brief Veritabanına (Registry) doğrudan erişim sağlar (İleri düzey kullanım).

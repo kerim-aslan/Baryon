@@ -149,12 +149,9 @@ void IslandSystem::updateSleep(
     const std::vector<std::vector<ecs::Entity>> &activeIslands,
     float deltaTime) {
 
-  const float kSleepLinearThresholdSq =
-      physics::PhysicsConstants::SleepLinearThresholdSq;
-  const float kSleepAngularThresholdSq =
-      physics::PhysicsConstants::SleepAngularThresholdSq;
-  const float kTimeToSleep =
-      physics::PhysicsConstants::TimeToSleep;
+  const float kSleepLinearThresholdSq = mSleepLinearThresholdSq;
+  const float kSleepAngularThresholdSq = mSleepAngularThresholdSq;
+  const float kTimeToSleep = mTimeToSleep;
 
   for (const auto &island : activeIslands) {
     bool canSleep = true;

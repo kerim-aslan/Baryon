@@ -109,7 +109,7 @@ void SpatialPartitioning::updateEntityInTree(ecs::Entity entity) {
     // Hareket eden nesneler için hız süpürmesi (Swept AABB): Hızlı nesnelerin broad-phase'de atlanmasını engeller
     if (mRegistry.hasComponent<Core::Motion>(entity)) {
         const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
-        Vector3 disp = motion.linearVelocity * physics::PhysicsConstants::AabbVelocityInflationTime;
+        Vector3 disp = motion.linearVelocity * mVelocityExpansion;
         if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
         if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
         if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;
@@ -220,7 +220,7 @@ void SpatialPartitioning::step() {
 
         if (mRegistry.hasComponent<Core::Motion>(entity)) {
             const auto& motion = mRegistry.getComponent<Core::Motion>(entity);
-            Vector3 disp = motion.linearVelocity * physics::PhysicsConstants::AabbVelocityInflationTime;
+            Vector3 disp = motion.linearVelocity * mVelocityExpansion;
             if (disp.x > 0.0f) worldAABB.maxBounds.x += disp.x; else worldAABB.minBounds.x += disp.x;
             if (disp.y > 0.0f) worldAABB.maxBounds.y += disp.y; else worldAABB.minBounds.y += disp.y;
             if (disp.z > 0.0f) worldAABB.maxBounds.z += disp.z; else worldAABB.minBounds.z += disp.z;
