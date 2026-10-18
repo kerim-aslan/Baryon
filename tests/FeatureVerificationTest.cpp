@@ -3,6 +3,7 @@
  * Copyright (C) 2026 Kerim Aslan
  */
 
+#include "TestCommon.hpp"
 #include <Baryon/Simulator.hpp>
 #include <Baryon/collision/CollisionShape.hpp>
 #include <Baryon/collision/CollisionListener.hpp>
@@ -39,7 +40,7 @@ void runBodyApiTests() {
     Simulator sim;
     Body body = sim.createBody(Pose(Vector3(0, 5, 0)), collision::CollisionShape{collision::BoxShape(Vector3(0.5f, 0.5f, 0.5f))});
     body.setBodyType(Core::BodyType::Dynamic);
-    body.setMass(2.0f);
+    CHECK(body.setMass(2.0f).has_value());
 
     // 1. Force
     auto resForce = body.applyForce(Vector3(0, 100, 0));
@@ -90,7 +91,7 @@ void runTriggerMechanicsTest() {
     // Dynamic ball flying directly through trigger from X = -3 to +3 at 10 m/s
     Body runner = sim.createBody(Pose(Vector3(-3.0f, 0, 0)), collision::CollisionShape{collision::SphereShape(0.4f)});
     runner.setBodyType(Core::BodyType::Dynamic);
-    runner.setMass(1.0f);
+    CHECK(runner.setMass(1.0f).has_value());
     runner.setLinearVelocity(Vector3(10.0f, 0, 0));
 
     // Step through the trigger
@@ -151,7 +152,7 @@ void runDistanceConstraintDriftTest() {
     float targetDist = 2.0f;
     Body bob = sim.createBody(Pose(Vector3(0.0f, 10.0f - targetDist, 0)), collision::CollisionShape{collision::SphereShape(0.3f)});
     bob.setBodyType(Core::BodyType::Dynamic);
-    bob.setMass(2.0f);
+    CHECK(bob.setMass(2.0f).has_value());
 
     sim.createDistanceConstraint(anchor, bob, targetDist);
     // Simulate vertical hanging under gravity for 120 steps (2 seconds)

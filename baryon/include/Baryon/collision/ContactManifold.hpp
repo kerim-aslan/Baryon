@@ -81,6 +81,32 @@ struct ContactManifold {
             contacts[3] = cp;
         }
     }
+
+    void inheritImpulses(const ContactManifold& oldManifold, float matchRadiusSq = 0.0004f) {
+        bool usedOld[4] = {false, false, false, false};
+        for (uint32_t cIdx = 0; cIdx < contactCount; ++cIdx) {
+            auto& newCp = contacts[cIdx];
+            float closestDistSq = matchRadiusSq;
+            int bestMatch = -1;
+            for (uint32_t oIdx = 0; oIdx < oldManifold.contactCount; ++oIdx) {
+                if (oIdx < 4 && usedOld[oIdx]) continue;
+                float distSqA = (oldManifold.contacts[oIdx].localPointA - newCp.localPointA).lengthSquare();
+                float distSqB = (oldManifold.contacts[oIdx].localPointB - newCp.localPointB).lengthSquare();
+                float distSq = std::min(distSqA, distSqB);
+                if (distSq < closestDistSq) {
+                    closestDistSq = distSq;
+                    bestMatch = static_cast<int>(oIdx);
+                }
+            }
+            if (bestMatch != -1) {
+                size_t bmIdx = static_cast<size_t>(bestMatch);
+                if (bmIdx < 4) usedOld[bmIdx] = true;
+                newCp.normalImpulse = oldManifold.contacts[bmIdx].normalImpulse;
+                newCp.tangentImpulse1 = oldManifold.contacts[bmIdx].tangentImpulse1;
+                newCp.tangentImpulse2 = oldManifold.contacts[bmIdx].tangentImpulse2;
+            }
+        }
+    }
 };
 
 } // namespace Baryon::collision

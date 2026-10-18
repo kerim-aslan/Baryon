@@ -39,16 +39,11 @@ namespace Baryon::systems {
 SequentialImpulsesKernel::SequentialImpulsesKernel(Core::Registry &registry)
     : mRegistry(registry) {}
 
-void SequentialImpulsesKernel::execute(
+void SequentialImpulsesKernel::collectIslandManifolds(
     const std::vector<ecs::Entity> &island,
-    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
-    float deltaTime, int velocityIterations, int positionIterations) {
-  if (island.empty())
-    return;
-
-  auto &manifoldMap = manifolds;
-  std::vector<collision::ContactManifold *> localManifolds;
-  localManifolds.reserve(std::min(manifolds.size(), static_cast<size_t>(64)));
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifoldMap,
+    std::vector<collision::ContactManifold *> &localManifolds) {
+  localManifolds.reserve(std::min(manifoldMap.size(), static_cast<size_t>(64)));
 
   if (island.size() == 1) {
     const uint64_t singleId = island[0].id;
@@ -81,16 +76,14 @@ void SequentialImpulsesKernel::execute(
       }
     }
   }
+}
 
-  // Eklem kısıtlamaları
-  std::vector<collision::DistanceConstraint *> localDistance;
-  std::vector<collision::RevoluteConstraint *> localRevolute;
-  if (mRegistry.getComponentPool<collision::DistanceConstraint>()
-          .getAllData()
-          .size() > 0) {
-    auto &constraints =
-        mRegistry.getComponentPool<collision::DistanceConstraint>()
-            .getAllData();
+void SequentialImpulsesKernel::collectIslandConstraints(
+    const std::vector<ecs::Entity> &island,
+    std::vector<collision::DistanceConstraint *> &localDistance,
+    std::vector<collision::RevoluteConstraint *> &localRevolute) {
+  if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
+    auto &constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
     for (auto &constraint : constraints) {
       bool match = false;
       for (ecs::Entity e : island) {
@@ -103,12 +96,8 @@ void SequentialImpulsesKernel::execute(
         localDistance.push_back(&constraint);
     }
   }
-  if (mRegistry.getComponentPool<collision::RevoluteConstraint>()
-          .getAllData()
-          .size() > 0) {
-    auto &constraints =
-        mRegistry.getComponentPool<collision::RevoluteConstraint>()
-            .getAllData();
+  if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
+    auto &constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
     for (auto &constraint : constraints) {
       bool match = false;
       for (ecs::Entity e : island) {
@@ -121,69 +110,70 @@ void SequentialImpulsesKernel::execute(
         localRevolute.push_back(&constraint);
     }
   }
+}
 
-  if (localManifolds.empty() && localDistance.empty() &&
-      localRevolute.empty()) {
+void SequentialImpulsesKernel::solveSingleIsland(
+    const std::vector<collision::ContactManifold *> &localManifolds,
+    const std::vector<collision::DistanceConstraint *> &localDist,
+    const std::vector<collision::RevoluteConstraint *> &localRev,
+    float deltaTime, int velocityIterations, int positionIterations) {
+  if (localManifolds.empty() && localDist.empty() && localRev.empty()) {
     return;
   }
 
   // 1. ÖN-ADIM: Ortogonal teğetleri ve Warm-Starting kuvvetlerini hızlara uygula
   for (collision::ContactManifold *manifold : localManifolds) {
-    if (manifold->isTriggerPair)
-      continue;
-    preStep(*manifold, deltaTime);
+    if (!manifold->isTriggerPair)
+      preStep(*manifold, deltaTime);
   }
 
   // 2. Hız İterasyonları: Gauss-Seidel yaklaşımı
   for (int iter = 0; iter < velocityIterations; ++iter) {
     for (collision::ContactManifold *manifold : localManifolds) {
-      if (manifold->isTriggerPair)
-        continue;
-      resolveCollision(*manifold, deltaTime);
+      if (!manifold->isTriggerPair)
+        resolveCollision(*manifold, deltaTime);
     }
-    for (collision::DistanceConstraint *constraint : localDistance) {
+    for (collision::DistanceConstraint *constraint : localDist) {
       resolveDistanceConstraint(*constraint, deltaTime);
     }
-    for (collision::RevoluteConstraint *constraint : localRevolute) {
+    for (collision::RevoluteConstraint *constraint : localRev) {
       resolveRevoluteConstraint(*constraint, deltaTime);
     }
   }
 
-  // 3. Pozisyon İterasyonları: Split Impulse ile kinetik hızı kirletmeden penetrasyonu çöz
+  // 3. Pozisyon İterasyonları: Split Impulse
   for (int iter = 0; iter < positionIterations; ++iter) {
     for (collision::ContactManifold *manifold : localManifolds) {
-      if (manifold->isTriggerPair)
-        continue;
-      solvePositionConstraints(*manifold, deltaTime);
+      if (!manifold->isTriggerPair)
+        solvePositionConstraints(*manifold, deltaTime);
     }
   }
 }
 
-void SequentialImpulsesKernel::executeIslands(
-    const std::vector<std::vector<ecs::Entity>> &islands,
+void SequentialImpulsesKernel::execute(
+    const std::vector<ecs::Entity> &island,
     std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
     float deltaTime, int velocityIterations, int positionIterations) {
-  if (islands.empty())
+  if (island.empty())
     return;
 
-  auto &manifoldMap = manifolds;
+  std::vector<collision::ContactManifold *> localManifolds;
+  collectIslandManifolds(island, manifolds, localManifolds);
 
-  // 1. Dinamik varlıkları ada indekslerine eşle (O(N))
-  std::unordered_map<uint64_t, size_t> entityToIsland;
-  size_t totalEntities = 0;
-  for (const auto &island : islands) {
-    totalEntities += island.size();
-  }
-  entityToIsland.reserve(totalEntities * 2);
+  std::vector<collision::DistanceConstraint *> localDistance;
+  std::vector<collision::RevoluteConstraint *> localRevolute;
+  collectIslandConstraints(island, localDistance, localRevolute);
 
-  for (size_t i = 0; i < islands.size(); ++i) {
-    for (ecs::Entity e : islands[i]) {
-      entityToIsland[e.id] = i;
-    }
-  }
+  solveSingleIsland(localManifolds, localDistance, localRevolute, deltaTime,
+                    velocityIterations, positionIterations);
+}
 
-  // 2. Manifoldları ilgili adalara yönlendir (O(M))
-  std::vector<std::vector<collision::ContactManifold *>> islandManifolds(islands.size());
+std::vector<std::vector<collision::ContactManifold *>>
+SequentialImpulsesKernel::routeAndSortIslandManifolds(
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifoldMap,
+    const std::unordered_map<uint64_t, size_t> &entityToIsland,
+    size_t islandCount) {
+  std::vector<std::vector<collision::ContactManifold *>> islandManifolds(islandCount);
   for (auto &[key, manifold] : manifoldMap) {
     auto itA = entityToIsland.find(manifold.entityA.id);
     if (itA != entityToIsland.end()) {
@@ -207,9 +197,14 @@ void SequentialImpulsesKernel::executeIslands(
       return ya != yb ? ya < yb : a->entityA.id < b->entityA.id;
     });
   }
+  return islandManifolds;
+}
 
-  // 3. Mesafe kısıtlamalarını ilgili adalara yönlendir (O(C_dist))
-  std::vector<std::vector<collision::DistanceConstraint *>> islandDistance(islands.size());
+std::vector<std::vector<collision::DistanceConstraint *>>
+SequentialImpulsesKernel::routeIslandDistanceConstraints(
+    const std::unordered_map<uint64_t, size_t> &entityToIsland,
+    size_t islandCount) {
+  std::vector<std::vector<collision::DistanceConstraint *>> islandDistance(islandCount);
   if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
     auto &constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
     for (auto &constraint : constraints) {
@@ -224,9 +219,14 @@ void SequentialImpulsesKernel::executeIslands(
       }
     }
   }
+  return islandDistance;
+}
 
-  // 4. Menteşe kısıtlamalarını ilgili adalara yönlendir (O(C_rev))
-  std::vector<std::vector<collision::RevoluteConstraint *>> islandRevolute(islands.size());
+std::vector<std::vector<collision::RevoluteConstraint *>>
+SequentialImpulsesKernel::routeIslandRevoluteConstraints(
+    const std::unordered_map<uint64_t, size_t> &entityToIsland,
+    size_t islandCount) {
+  std::vector<std::vector<collision::RevoluteConstraint *>> islandRevolute(islandCount);
   if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
     auto &constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
     for (auto &constraint : constraints) {
@@ -241,47 +241,43 @@ void SequentialImpulsesKernel::executeIslands(
       }
     }
   }
+  return islandRevolute;
+}
+
+void SequentialImpulsesKernel::executeIslands(
+    const std::vector<std::vector<ecs::Entity>> &islands,
+    std::unordered_map<uint64_t, collision::ContactManifold> &manifolds,
+    float deltaTime, int velocityIterations, int positionIterations) {
+  if (islands.empty())
+    return;
+
+  // 1. Dinamik varlıkları ada indekslerine eşle (O(N))
+  std::unordered_map<uint64_t, size_t> entityToIsland;
+  size_t totalEntities = 0;
+  for (const auto &island : islands) {
+    totalEntities += island.size();
+  }
+  entityToIsland.reserve(totalEntities * 2);
+
+  for (size_t i = 0; i < islands.size(); ++i) {
+    for (ecs::Entity e : islands[i]) {
+      entityToIsland[e.id] = i;
+    }
+  }
+
+  // 2. Manifoldları ilgili adalara yönlendir ve sırala (O(M))
+  auto islandManifolds = routeAndSortIslandManifolds(manifolds, entityToIsland, islands.size());
+
+  // 3. Mesafe kısıtlamalarını ilgili adalara yönlendir
+  auto islandDistance = routeIslandDistanceConstraints(entityToIsland, islands.size());
+
+  // 4. Menteşe kısıtlamalarını ilgili adalara yönlendir
+  auto islandRevolute = routeIslandRevoluteConstraints(entityToIsland, islands.size());
 
   // 5. Her adayı kendi temasları ve kısıtlamaları ile çöz
   for (size_t i = 0; i < islands.size(); ++i) {
-    const auto &localManifolds = islandManifolds[i];
-    const auto &localDist = islandDistance[i];
-    const auto &localRev = islandRevolute[i];
-
-    if (localManifolds.empty() && localDist.empty() && localRev.empty()) {
-      continue;
-    }
-
-    // Ön-adım
-    for (collision::ContactManifold *manifold : localManifolds) {
-      if (manifold->isTriggerPair)
-        continue;
-      preStep(*manifold, deltaTime);
-    }
-
-    // Hız İterasyonları
-    for (int iter = 0; iter < velocityIterations; ++iter) {
-      for (collision::ContactManifold *manifold : localManifolds) {
-        if (manifold->isTriggerPair)
-          continue;
-        resolveCollision(*manifold, deltaTime);
-      }
-      for (collision::DistanceConstraint *constraint : localDist) {
-        resolveDistanceConstraint(*constraint, deltaTime);
-      }
-      for (collision::RevoluteConstraint *constraint : localRev) {
-        resolveRevoluteConstraint(*constraint, deltaTime);
-      }
-    }
-
-    // Pozisyon İterasyonları
-    for (int iter = 0; iter < positionIterations; ++iter) {
-      for (collision::ContactManifold *manifold : localManifolds) {
-        if (manifold->isTriggerPair)
-          continue;
-        solvePositionConstraints(*manifold, deltaTime);
-      }
-    }
+    solveSingleIsland(islandManifolds[i], islandDistance[i], islandRevolute[i],
+                      deltaTime, velocityIterations, positionIterations);
   }
 }
 
@@ -384,6 +380,113 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
   }
 }
 
+void SequentialImpulsesKernel::solveContactNormal(
+    collision::ContactPoint &contact,
+    const Vector3 &rA, const Vector3 &rB, const Vector3 &n,
+    float invMassA, float invMassB,
+    const Matrix3x3 &invIA, const Matrix3x3 &invIB,
+    Core::Motion &motionA, Core::Motion &motionB) {
+  Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  Vector3 relVel = vA - vB;
+
+  float normalVel = relVel.dot(n);
+  float deltaV = -normalVel + contact.velocityBias;
+
+  Vector3 rACrossN = rA.cross(n);
+  Vector3 rBCrossN = rB.cross(n);
+  float invMassSumN = invMassA + invMassB + (invIA * rACrossN).dot(rACrossN) +
+                      (invIB * rBCrossN).dot(rBCrossN);
+  if (invMassSumN > 1e-6f) {
+    float jn = deltaV / invMassSumN;
+    float oldImpulse = contact.normalImpulse;
+    contact.normalImpulse = std::max(oldImpulse + jn, 0.0f);
+    jn = contact.normalImpulse - oldImpulse;
+
+    Vector3 impulse = n * jn;
+    motionA.linearVelocity += impulse * invMassA;
+    motionA.angularVelocity += invIA * rA.cross(impulse);
+    motionB.linearVelocity -= impulse * invMassB;
+    motionB.angularVelocity -= invIB * rB.cross(impulse);
+  }
+}
+
+void SequentialImpulsesKernel::solveContactFriction(
+    collision::ContactPoint &contact,
+    const Vector3 &rA, const Vector3 &rB,
+    const Vector3 &t1, const Vector3 &t2,
+    float friction,
+    float invMassA, float invMassB,
+    const Matrix3x3 &invIA, const Matrix3x3 &invIB,
+    Core::Motion &motionA, Core::Motion &motionB) {
+  float maxFriction = friction * contact.normalImpulse;
+
+  // Teğet 1
+  Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  Vector3 relVel = vA - vB;
+  Vector3 rACrossT1 = rA.cross(t1);
+  Vector3 rBCrossT1 = rB.cross(t1);
+  float invMassSumT1 = invMassA + invMassB +
+                       (invIA * rACrossT1).dot(rACrossT1) +
+                       (invIB * rBCrossT1).dot(rBCrossT1);
+  if (invMassSumT1 > 1e-6f) {
+    float jt1 = -relVel.dot(t1) / invMassSumT1;
+    float oldT1 = contact.tangentImpulse1;
+    contact.tangentImpulse1 =
+        std::clamp(oldT1 + jt1, -maxFriction, maxFriction);
+    jt1 = contact.tangentImpulse1 - oldT1;
+
+    Vector3 impulseT1 = t1 * jt1;
+    motionA.linearVelocity += impulseT1 * invMassA;
+    motionA.angularVelocity += invIA * rA.cross(impulseT1);
+    motionB.linearVelocity -= impulseT1 * invMassB;
+    motionB.angularVelocity -= invIB * rB.cross(impulseT1);
+  }
+
+  // Teğet 2
+  vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  relVel = vA - vB;
+  Vector3 rACrossT2 = rA.cross(t2);
+  Vector3 rBCrossT2 = rB.cross(t2);
+  float invMassSumT2 = invMassA + invMassB +
+                       (invIA * rACrossT2).dot(rACrossT2) +
+                       (invIB * rBCrossT2).dot(rBCrossT2);
+  if (invMassSumT2 > 1e-6f) {
+    float jt2 = -relVel.dot(t2) / invMassSumT2;
+    float oldT2 = contact.tangentImpulse2;
+    contact.tangentImpulse2 =
+        std::clamp(oldT2 + jt2, -maxFriction, maxFriction);
+    jt2 = contact.tangentImpulse2 - oldT2;
+
+    Vector3 impulseT2 = t2 * jt2;
+    motionA.linearVelocity += impulseT2 * invMassA;
+    motionA.angularVelocity += invIA * rA.cross(impulseT2);
+    motionB.linearVelocity -= impulseT2 * invMassB;
+    motionB.angularVelocity -= invIB * rB.cross(impulseT2);
+  }
+}
+
+void SequentialImpulsesKernel::applyRollingResistance(
+    float friction, float totalNormalImpulse,
+    const Matrix3x3 &invIA, const Matrix3x3 &invIB,
+    Core::Motion &motionA, Core::Motion &motionB) {
+  Vector3 relAngVel = motionA.angularVelocity - motionB.angularVelocity;
+  float relAngSpeed = relAngVel.length();
+  if (relAngSpeed > physics::PhysicsConstants::RollingFrictionAngularVelocityThreshold && totalNormalImpulse > 0.0f) {
+    Vector3 rollDir = relAngVel / relAngSpeed;
+    float maxRollImpulse = physics::PhysicsConstants::RollingFrictionCoefficient * friction * totalNormalImpulse;
+    float invAngMassSum = (invIA * rollDir).dot(rollDir) + (invIB * rollDir).dot(rollDir);
+    if (invAngMassSum > 1e-6f) {
+      float jRoll = std::min(relAngSpeed / invAngMassSum, maxRollImpulse);
+      Vector3 rollImpulse = rollDir * jRoll;
+      motionA.angularVelocity -= invIA * rollImpulse;
+      motionB.angularVelocity += invIB * rollImpulse;
+    }
+  }
+}
+
 void SequentialImpulsesKernel::resolveCollision(
     collision::ContactManifold &manifold, float deltaTime) {
   (void)deltaTime;
@@ -437,101 +540,15 @@ void SequentialImpulsesKernel::resolveCollision(
 
   for (uint32_t i = 0; i < manifold.contactCount; ++i) {
     auto &contact = manifold.contacts[i];
-
     Vector3 rA = poseA.orientation * contact.localPointA;
     Vector3 rB = poseB.orientation * contact.localPointB;
 
-    // 1. Normal İtme Çözümü
-    Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
-    Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-    Vector3 relVel = vA - vB;
-
-    float normalVel = relVel.dot(n);
-    float deltaV = -normalVel + contact.velocityBias;
-
-    Vector3 rACrossN = rA.cross(n);
-    Vector3 rBCrossN = rB.cross(n);
-    float invMassSumN = invMassA + invMassB + (invIA * rACrossN).dot(rACrossN) +
-                        (invIB * rBCrossN).dot(rBCrossN);
-    if (invMassSumN > 1e-6f) {
-      float jn = deltaV / invMassSumN;
-      float oldImpulse = contact.normalImpulse;
-      contact.normalImpulse = std::max(oldImpulse + jn, 0.0f);
-      jn = contact.normalImpulse - oldImpulse;
-
-      Vector3 impulse = n * jn;
-      motionA.linearVelocity += impulse * invMassA;
-      motionA.angularVelocity += invIA * rA.cross(impulse);
-      motionB.linearVelocity -= impulse * invMassB;
-      motionB.angularVelocity -= invIB * rB.cross(impulse);
-    }
-
-    // 2. Çift Teğetli Coulomb Sürtünmesi Çözümü (T1 ve T2)
-    float maxFriction = friction * contact.normalImpulse;
-
-    // Teğet 1
-    vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
-    vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-    relVel = vA - vB;
-    Vector3 rACrossT1 = rA.cross(t1);
-    Vector3 rBCrossT1 = rB.cross(t1);
-    float invMassSumT1 = invMassA + invMassB +
-                         (invIA * rACrossT1).dot(rACrossT1) +
-                         (invIB * rBCrossT1).dot(rBCrossT1);
-    if (invMassSumT1 > 1e-6f) {
-      float jt1 = -relVel.dot(t1) / invMassSumT1;
-      float oldT1 = contact.tangentImpulse1;
-      contact.tangentImpulse1 =
-          std::clamp(oldT1 + jt1, -maxFriction, maxFriction);
-      jt1 = contact.tangentImpulse1 - oldT1;
-
-      Vector3 impulseT1 = t1 * jt1;
-      motionA.linearVelocity += impulseT1 * invMassA;
-      motionA.angularVelocity += invIA * rA.cross(impulseT1);
-      motionB.linearVelocity -= impulseT1 * invMassB;
-      motionB.angularVelocity -= invIB * rB.cross(impulseT1);
-    }
-
-    // Teğet 2
-    vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
-    vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
-    relVel = vA - vB;
-    Vector3 rACrossT2 = rA.cross(t2);
-    Vector3 rBCrossT2 = rB.cross(t2);
-    float invMassSumT2 = invMassA + invMassB +
-                         (invIA * rACrossT2).dot(rACrossT2) +
-                         (invIB * rBCrossT2).dot(rBCrossT2);
-    if (invMassSumT2 > 1e-6f) {
-      float jt2 = -relVel.dot(t2) / invMassSumT2;
-      float oldT2 = contact.tangentImpulse2;
-      contact.tangentImpulse2 =
-          std::clamp(oldT2 + jt2, -maxFriction, maxFriction);
-      jt2 = contact.tangentImpulse2 - oldT2;
-
-      Vector3 impulseT2 = t2 * jt2;
-      motionA.linearVelocity += impulseT2 * invMassA;
-      motionA.angularVelocity += invIA * rA.cross(impulseT2);
-      motionB.linearVelocity -= impulseT2 * invMassB;
-      motionB.angularVelocity -= invIB * rB.cross(impulseT2);
-    }
-
+    solveContactNormal(contact, rA, rB, n, invMassA, invMassB, invIA, invIB, motionA, motionB);
+    solveContactFriction(contact, rA, rB, t1, t2, friction, invMassA, invMassB, invIA, invIB, motionA, motionB);
     totalNormalImpulse += contact.normalImpulse;
   }
 
-  // 3. Yuvarlanma Direnci (Rolling Resistance - manifold başına tekil uygulanır)
-  Vector3 relAngVel = motionA.angularVelocity - motionB.angularVelocity;
-  float relAngSpeed = relAngVel.length();
-  if (relAngSpeed > physics::PhysicsConstants::RollingFrictionAngularVelocityThreshold && totalNormalImpulse > 0.0f) {
-    Vector3 rollDir = relAngVel / relAngSpeed;
-    float maxRollImpulse = physics::PhysicsConstants::RollingFrictionCoefficient * friction * totalNormalImpulse;
-    float invAngMassSum = (invIA * rollDir).dot(rollDir) + (invIB * rollDir).dot(rollDir);
-    if (invAngMassSum > 1e-6f) {
-      float jRoll = std::min(relAngSpeed / invAngMassSum, maxRollImpulse);
-      Vector3 rollImpulse = rollDir * jRoll;
-      motionA.angularVelocity -= invIA * rollImpulse;
-      motionB.angularVelocity += invIB * rollImpulse;
-    }
-  }
+  applyRollingResistance(friction, totalNormalImpulse, invIA, invIB, motionA, motionB);
 }
 
 void SequentialImpulsesKernel::solvePositionConstraints(

@@ -312,7 +312,7 @@ void testNoWrongSleepTiltedCapsule() {
 
     bool sleptPrematurely = false;
     bool toppled = false;
-    for (int i = 0; i < 180; ++i) {
+    for (int i = 0; i < 600; ++i) {
         sim.step(1.0f / 60.0f);
         Quaternion currentRot = c.getOrientation().value();
         // Devrildiğinde rotasyon açısı belirgin şekilde değişmiş olmalı
@@ -325,8 +325,15 @@ void testNoWrongSleepTiltedCapsule() {
             break;
         }
     }
+    Quaternion finalRot = c.getOrientation().value();
+    Vector3 axis = finalRot * Vector3(0, 1, 0);
+    bool isAwake = !c.isSleeping().value();
+    bool isHorizontal = std::abs(axis.y) < 0.05f;
+    std::cout << "[testNoWrongSleepTiltedCapsule] at 10s: axis.y=" << axis.y 
+              << ", isAwake=" << isAwake << ", isHorizontal=" << isHorizontal << std::endl;
     CHECK_MSG(!sleptPrematurely, "45 derece egik kapsul devrilmeden once uyumamali");
     CHECK_MSG(toppled, "45 derece egik kapsul devrilmeli");
+    CHECK_MSG(isHorizontal || isAwake, "10 sn sonra eksen |y| < 0.05 veya uyanik olmali (G4.4)");
 }
 
 int main() {

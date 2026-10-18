@@ -37,6 +37,56 @@ class SequentialImpulsesKernel {
 private:
     Core::Registry& mRegistry;
 
+    void collectIslandManifolds(
+        const std::vector<ecs::Entity>& island,
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifoldMap,
+        std::vector<collision::ContactManifold*>& localManifolds);
+
+    void collectIslandConstraints(
+        const std::vector<ecs::Entity>& island,
+        std::vector<collision::DistanceConstraint*>& localDistance,
+        std::vector<collision::RevoluteConstraint*>& localRevolute);
+
+    std::vector<std::vector<collision::ContactManifold*>> routeAndSortIslandManifolds(
+        std::unordered_map<uint64_t, collision::ContactManifold>& manifoldMap,
+        const std::unordered_map<uint64_t, size_t>& entityToIsland,
+        size_t islandCount);
+
+    std::vector<std::vector<collision::DistanceConstraint*>> routeIslandDistanceConstraints(
+        const std::unordered_map<uint64_t, size_t>& entityToIsland,
+        size_t islandCount);
+
+    std::vector<std::vector<collision::RevoluteConstraint*>> routeIslandRevoluteConstraints(
+        const std::unordered_map<uint64_t, size_t>& entityToIsland,
+        size_t islandCount);
+
+    void solveSingleIsland(
+        const std::vector<collision::ContactManifold*>& localManifolds,
+        const std::vector<collision::DistanceConstraint*>& localDist,
+        const std::vector<collision::RevoluteConstraint*>& localRev,
+        float deltaTime, int velocityIterations, int positionIterations);
+
+    void solveContactNormal(
+        collision::ContactPoint& contact,
+        const Vector3& rA, const Vector3& rB, const Vector3& n,
+        float invMassA, float invMassB,
+        const Matrix3x3& invIA, const Matrix3x3& invIB,
+        Core::Motion& motionA, Core::Motion& motionB);
+
+    void solveContactFriction(
+        collision::ContactPoint& contact,
+        const Vector3& rA, const Vector3& rB,
+        const Vector3& t1, const Vector3& t2,
+        float friction,
+        float invMassA, float invMassB,
+        const Matrix3x3& invIA, const Matrix3x3& invIB,
+        Core::Motion& motionA, Core::Motion& motionB);
+
+    void applyRollingResistance(
+        float friction, float totalNormalImpulse,
+        const Matrix3x3& invIA, const Matrix3x3& invIB,
+        Core::Motion& motionA, Core::Motion& motionB);
+
 public:
     explicit SequentialImpulsesKernel(Core::Registry& registry);
 

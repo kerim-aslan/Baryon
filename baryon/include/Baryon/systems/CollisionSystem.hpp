@@ -55,6 +55,24 @@ private:
      */
     std::unordered_map<uint64_t, collision::ContactManifold> mManifoldMap;
 
+    void wakeIfSleeping(ecs::Entity e);
+
+    void processMeshCollision(ecs::Entity entityA, ecs::Entity entityB,
+                              const Pose& transA, const Pose& transB,
+                              const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+                              bool isMeshB,
+                              const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
+
+    void processBoxBoxCollision(ecs::Entity entityA, ecs::Entity entityB,
+                                const Pose& transA, const Pose& transB,
+                                const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+                                const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
+
+    void processConvexCollision(ecs::Entity entityA, ecs::Entity entityB,
+                                const Pose& transA, const Pose& transB,
+                                const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+                                const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
+
 public:
     /**
      * @brief Çarpışma sistemini başlatır.
