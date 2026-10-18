@@ -196,6 +196,18 @@ void SequentialImpulsesKernel::executeIslands(
     }
   }
 
+  for (auto &list : islandManifolds) {
+    auto lowY = [&](collision::ContactManifold *m) {
+      float ya = mRegistry.hasComponent<Pose>(m->entityA) ? mRegistry.getComponent<Pose>(m->entityA).position.y : 1e9f;
+      float yb = mRegistry.hasComponent<Pose>(m->entityB) ? mRegistry.getComponent<Pose>(m->entityB).position.y : 1e9f;
+      return std::min(ya, yb);
+    };
+    std::sort(list.begin(), list.end(), [&](auto *a, auto *b) {
+      float ya = lowY(a), yb = lowY(b);
+      return ya != yb ? ya < yb : a->entityA.id < b->entityA.id;
+    });
+  }
+
   // 3. Mesafe kısıtlamalarını ilgili adalara yönlendir (O(C_dist))
   std::vector<std::vector<collision::DistanceConstraint *>> islandDistance(islands.size());
   if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
@@ -353,6 +365,12 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
     if (normalVel < -physics::PhysicsConstants::RestitutionVelocityThreshold) {
       contact.velocityBias = -restitution * normalVel;
     }
+  }
+
+  for (uint32_t i = 0; i < manifold.contactCount; ++i) {
+    auto &contact = manifold.contacts[i];
+    Vector3 rA = poseA.orientation * contact.localPointA;
+    Vector3 rB = poseB.orientation * contact.localPointB;
 
     // Warm Starting itmelerini hızlara uygula
     Vector3 totalImpulse = (n * contact.normalImpulse) +
@@ -415,6 +433,7 @@ void SequentialImpulsesKernel::resolveCollision(
   Vector3 n = manifold.normal;
   Vector3 t1 = manifold.tangent1;
   Vector3 t2 = manifold.tangent2;
+  float totalNormalImpulse = 0.0f;
 
   for (uint32_t i = 0; i < manifold.contactCount; ++i) {
     auto &contact = manifold.contacts[i];
@@ -496,19 +515,21 @@ void SequentialImpulsesKernel::resolveCollision(
       motionB.angularVelocity -= invIB * rB.cross(impulseT2);
     }
 
-    // 3. Yuvarlanma Direnci (Rolling Resistance)
-    Vector3 relAngVel = motionA.angularVelocity - motionB.angularVelocity;
-    float relAngSpeed = relAngVel.length();
-    if (relAngSpeed > physics::PhysicsConstants::RollingFrictionAngularVelocityThreshold && contact.normalImpulse > 0.0f) {
-      Vector3 rollDir = relAngVel / relAngSpeed;
-      float maxRollImpulse = physics::PhysicsConstants::RollingFrictionCoefficient * friction * contact.normalImpulse;
-      float invAngMassSum = (invIA * rollDir).dot(rollDir) + (invIB * rollDir).dot(rollDir);
-      if (invAngMassSum > 1e-6f) {
-        float jRoll = std::min(relAngSpeed / invAngMassSum, maxRollImpulse);
-        Vector3 rollImpulse = rollDir * jRoll;
-        motionA.angularVelocity -= invIA * rollImpulse;
-        motionB.angularVelocity += invIB * rollImpulse;
-      }
+    totalNormalImpulse += contact.normalImpulse;
+  }
+
+  // 3. Yuvarlanma Direnci (Rolling Resistance - manifold başına tekil uygulanır)
+  Vector3 relAngVel = motionA.angularVelocity - motionB.angularVelocity;
+  float relAngSpeed = relAngVel.length();
+  if (relAngSpeed > physics::PhysicsConstants::RollingFrictionAngularVelocityThreshold && totalNormalImpulse > 0.0f) {
+    Vector3 rollDir = relAngVel / relAngSpeed;
+    float maxRollImpulse = physics::PhysicsConstants::RollingFrictionCoefficient * friction * totalNormalImpulse;
+    float invAngMassSum = (invIA * rollDir).dot(rollDir) + (invIB * rollDir).dot(rollDir);
+    if (invAngMassSum > 1e-6f) {
+      float jRoll = std::min(relAngSpeed / invAngMassSum, maxRollImpulse);
+      Vector3 rollImpulse = rollDir * jRoll;
+      motionA.angularVelocity -= invIA * rollImpulse;
+      motionB.angularVelocity += invIB * rollImpulse;
     }
   }
 }

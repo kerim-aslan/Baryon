@@ -170,6 +170,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/EntityCapacityTest.cpp")
     add_test(NAME EntityCapacityTest COMMAND EntityCapacityTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TowerStabilityTest.cpp")
+    add_executable(TowerStabilityTest tests/TowerStabilityTest.cpp)
+    target_link_libraries(TowerStabilityTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME TowerStabilityTest COMMAND TowerStabilityTest)
+endif()
+
 
 # 4. Baryon Görsel Teşhis ve Test Aracı (Baryon Visual Debugger & Testbed)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/debugger/CMakeLists.txt")

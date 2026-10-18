@@ -267,7 +267,9 @@ void Simulator::step(float deltaTime) {
 		mIntegrator.integratePositions(dt);
 
 		// 6b. Uyku durumlarını çözücü ve konum güncellemesi sonrası hızlara göre güncelle
-		mIslandSystem.updateSleep(islands, dt);
+		if (mSettings.enableSleeping) {
+			mIslandSystem.updateSleep(islands, dt);
+		}
 
 		// 7. Bağlı nesne hiyerarşilerini (ebeveyn-çocuk) uyarla
 		mHierarchySystem.step();

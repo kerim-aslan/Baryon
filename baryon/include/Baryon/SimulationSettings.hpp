@@ -50,6 +50,9 @@ struct SimulationSettings {
 
     /// @brief Uykuya geçiş hız eşiklerinin altında kalınması gereken süre (saniye). Varsayılan: 0.5s.
     float timeToSleep{0.5f};
+
+    /// @brief Uyku optimizasyonunun devrede olup olmadığını belirler. Varsayılan: true.
+    bool enableSleeping{true};
 };
 
 } // namespace Baryon
