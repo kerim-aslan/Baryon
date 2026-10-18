@@ -357,9 +357,11 @@ static float gjkDistanceImpl(const CollisionShape &shapeA,
   constexpr float kEpsilon = 1e-8f;
   constexpr float kEpsR = 1e-6f;
 
+  Vector3 closest(0.0f, 0.0f, 0.0f);
+  float bu = 1.0f, bv = 0.0f, bw = 0.0f, bx = 0.0f;
+
   for (int iter = 0; iter < kMaxIter; ++iter) {
-    Vector3 closest;
-    float bu = 1.0f, bv = 0.0f, bw = 0.0f, bx = 0.0f;
+    bu = 1.0f; bv = 0.0f; bw = 0.0f; bx = 0.0f;
 
     if (n == 1) {
       closest = simplex[0].w;
@@ -453,9 +455,8 @@ static float gjkDistanceImpl(const CollisionShape &shapeA,
     n = k;
   }
 
-  outPointA = transformA.position;
-  outPointB = transformB.position;
-  return 0.0f;
+  gjkWitnessFromBarycentric(simplex, bu, bv, bw, bx, outPointA, outPointB);
+  return closest.length();
 }
 
 } // namespace

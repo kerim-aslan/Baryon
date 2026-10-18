@@ -900,9 +900,13 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
         if (relSpeed < 0.001f)
           break;
 
-        if (dist < 0.005f) {
-          if (currentTime < timeOfImpact) {
-            timeOfImpact = currentTime;
+        constexpr float targetSlop = 0.5f * physics::PhysicsConstants::LinearSlop;
+        if (dist <= targetSlop) {
+          float touchTime = currentTime + (dist / relSpeed) + (0.017f / relSpeed);
+          touchTime = std::min(deltaTime, touchTime);
+
+          if (touchTime < timeOfImpact) {
+            timeOfImpact = touchTime;
             hasCollision = true;
             hitEntity = obstacle;
 
@@ -971,65 +975,8 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
     // Erken yercekimi entegrasyonunu carpisma anina geri al
     motion.linearVelocity -= mAccelerationField * remainingTime;
 
-    // 1. Pozisyonu carpisma anina otele
+    // 1. Pozisyonu temas anina otele (yuzeye temas konumu)
     transform.position += motion.linearVelocity * safeTime;
-
-    // 2. Carpisma nesnelerinin kutle ve hizlarini al
-    Vector3 obsVel(0.0f, 0.0f, 0.0f);
-    float invMassObs = 0.0f;
-    if (mRegistry.hasComponent<Core::Motion>(hitEntity)) {
-      obsVel = mRegistry.getComponent<Core::Motion>(hitEntity).linearVelocity;
-    }
-    if (mRegistry.hasComponent<Core::MassProps>(hitEntity)) {
-      if (mRegistry.hasComponent<Core::BodyState>(hitEntity)) {
-        const auto &obsState = mRegistry.getComponent<Core::BodyState>(hitEntity);
-        if (obsState.type == Core::BodyType::Dynamic) {
-          invMassObs = mRegistry.getComponent<Core::MassProps>(hitEntity).inverseMass;
-        }
-      }
-    }
-
-    float invMassA = 0.0f;
-    if (mRegistry.hasComponent<Core::MassProps>(entity)) {
-      invMassA = mRegistry.getComponent<Core::MassProps>(entity).inverseMass;
-    }
-
-    // 3. Restitution (sekme) katsayisini belirle
-    float restitution = 0.0f;
-    if (mRegistry.hasComponent<Core::Material>(entity) &&
-        mRegistry.hasComponent<Core::Material>(hitEntity)) {
-      const auto &matA = mRegistry.getComponent<Core::Material>(entity);
-      const auto &matB = mRegistry.getComponent<Core::Material>(hitEntity);
-      restitution = std::max(matA.restitution, matB.restitution);
-    }
-
-    Vector3 relVel = motion.linearVelocity - obsVel;
-    float normalVel = relVel.dot(collisionNormal);
-
-    if (normalVel < 0.0f) {
-      float effRestitution = 0.0f;
-      if (-normalVel > physics::PhysicsConstants::RestitutionVelocityThreshold) {
-        effRestitution = restitution;
-      }
-
-      float invMassSum = invMassA + invMassObs;
-      if (invMassSum > 1e-6f) {
-        float impulseMag = -(1.0f + effRestitution) * normalVel / invMassSum;
-        Vector3 impulse = collisionNormal * impulseMag;
-
-        motion.linearVelocity += impulse * invMassA;
-        if (invMassObs > 0.0f && mRegistry.hasComponent<Core::Motion>(hitEntity)) {
-          mRegistry.getComponent<Core::Motion>(hitEntity).linearVelocity -= impulse * invMassObs;
-        }
-      }
-    }
-
-    // 4. Adimin kalan suresi icin hareketi ve ivmeyi tamamla
-    if (remainingTime > 0.0f) {
-      transform.position += motion.linearVelocity * remainingTime +
-                            mAccelerationField * (0.5f * remainingTime * remainingTime);
-      motion.linearVelocity += mAccelerationField * remainingTime;
-    }
 
     state.ccdIntegrated = true;
   }

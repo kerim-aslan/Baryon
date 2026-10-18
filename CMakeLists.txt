@@ -176,6 +176,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TowerStabilityTest.cpp")
     add_test(NAME TowerStabilityTest COMMAND TowerStabilityTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CcdBounceAirTest.cpp")
+    add_executable(CcdBounceAirTest tests/CcdBounceAirTest.cpp)
+    target_link_libraries(CcdBounceAirTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME CcdBounceAirTest COMMAND CcdBounceAirTest)
+endif()
+
 
 # 4. Baryon Görsel Teşhis ve Test Aracı (Baryon Visual Debugger & Testbed)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/debugger/CMakeLists.txt")
