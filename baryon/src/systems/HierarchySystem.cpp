@@ -52,7 +52,7 @@ void HierarchySystem::step() {
     if (entities.empty()) return;
 
     // AŞAMA 1: Ebeveyn -> Çocuklar haritasını oluştur
-    std::unordered_map<uint32_t, std::vector<ecs::Entity>> childrenMap;
+    std::unordered_map<uint64_t, std::vector<ecs::Entity>> childrenMap;
     std::vector<ecs::Entity> roots;
     std::vector<ecs::Entity> potentialRoots;
 
@@ -60,7 +60,7 @@ void HierarchySystem::step() {
         auto& entity = entities[i];
         auto& linkage = linkages[i];
 
-        if (linkage.parentId == 0xFFFFFFFF) {
+        if (linkage.parentId == 0xFFFFFFFFFFFFFFFFULL) {
             // Hiçbir yere bağlı olmayan ana nesne (Kök)
             roots.push_back(entity);
         } else {

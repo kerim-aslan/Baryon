@@ -51,7 +51,7 @@ void SequentialImpulsesKernel::execute(
   localManifolds.reserve(std::min(manifolds.size(), static_cast<size_t>(64)));
 
   if (island.size() == 1) {
-    const uint32_t singleId = island[0].id;
+    const uint64_t singleId = island[0].id;
     for (auto &[key, manifold] : manifoldMap) {
       if (manifold.entityA.id == singleId || manifold.entityB.id == singleId) {
         localManifolds.push_back(&manifold);
@@ -59,8 +59,8 @@ void SequentialImpulsesKernel::execute(
     }
   } else if (island.size() <= 16) {
     for (auto &[key, manifold] : manifoldMap) {
-      uint32_t idA = manifold.entityA.id;
-      uint32_t idB = manifold.entityB.id;
+      uint64_t idA = manifold.entityA.id;
+      uint64_t idB = manifold.entityB.id;
       for (ecs::Entity e : island) {
         if (e.id == idA || e.id == idB) {
           localManifolds.push_back(&manifold);
@@ -69,7 +69,7 @@ void SequentialImpulsesKernel::execute(
       }
     }
   } else {
-    std::unordered_set<uint32_t> islandIds;
+    std::unordered_set<uint64_t> islandIds;
     islandIds.reserve(island.size() * 2);
     for (ecs::Entity e : island) {
       islandIds.insert(e.id);
@@ -169,7 +169,7 @@ void SequentialImpulsesKernel::executeIslands(
   auto &manifoldMap = manifolds;
 
   // 1. Dinamik varlıkları ada indekslerine eşle (O(N))
-  std::unordered_map<uint32_t, size_t> entityToIsland;
+  std::unordered_map<uint64_t, size_t> entityToIsland;
   size_t totalEntities = 0;
   for (const auto &island : islands) {
     totalEntities += island.size();

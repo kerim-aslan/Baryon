@@ -164,6 +164,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/NarrowPhaseRefactorTest.cpp")
     add_test(NAME NarrowPhaseRefactorTest COMMAND NarrowPhaseRefactorTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/EntityCapacityTest.cpp")
+    add_executable(EntityCapacityTest tests/EntityCapacityTest.cpp)
+    target_link_libraries(EntityCapacityTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME EntityCapacityTest COMMAND EntityCapacityTest)
+endif()
+
+
 # 4. Baryon Görsel Teşhis ve Test Aracı (Baryon Visual Debugger & Testbed)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/debugger/CMakeLists.txt")
     option(BARYON_BUILD_DEBUGGER "Build Baryon Visual Debugger and Diagnostic Tool" ON)

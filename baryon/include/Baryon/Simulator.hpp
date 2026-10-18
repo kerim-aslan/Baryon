@@ -160,6 +160,9 @@ public:
      * @param body Silinecek cisim.
      */
     void destroyBody(Body& body);
+    void setMaxEntityCapacity(uint32_t maxCapacity) { mRegistry.setMaxCapacity(maxCapacity); }
+    [[nodiscard]] uint32_t getMaxEntityCapacity() const { return mRegistry.getMaxCapacity(); }
+
 
     /// @}
 

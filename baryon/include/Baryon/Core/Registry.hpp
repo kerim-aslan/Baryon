@@ -81,13 +81,18 @@ public:
   /// @name Varlık (Entity) Yönetimi
   /// @{
 
-  /**
-   * @brief Sahneye yeni, boş bir varlık (entity) ekler.
-   * @return Oluşturulan yeni varlığın kimliği.
-   */
-  [[nodiscard]] ecs::Entity createEntity() {
+  [[nodiscard]] std::expected<ecs::Entity, PhysicsError> createEntity() {
     return mEntityManager.createEntity();
   }
+
+  void setMaxCapacity(uint32_t maxCapacity) {
+    mEntityManager.setMaxCapacity(maxCapacity);
+  }
+
+  [[nodiscard]] uint32_t getMaxCapacity() const {
+    return mEntityManager.getMaxCapacity();
+  }
+
 
   /**
    * @brief Bir varlığı ve ona bağlı olan tüm bileşenleri sistemden tamamen siler.

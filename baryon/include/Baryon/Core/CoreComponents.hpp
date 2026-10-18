@@ -103,9 +103,10 @@ struct BodyState {
  * @details Bir cismin dünya pozisyonu yerine, bağlı olduğu ebeveynine göre nerede durduğunu tanımlar.
  */
 struct Linkage {
-    uint32_t parentId{0xFFFFFFFF};                         ///< Bağlı olduğu ebeveyn varlığın kimliği (0xFFFFFFFF = Kök/Bağımsız cisim).
+    uint64_t parentId{0xFFFFFFFFFFFFFFFFULL};               ///< Bağlı olduğu ebeveyn varlığın kimliği (0xFFFFFFFFFFFFFFFF = Kök/Bağımsız cisim).
     Vector3 localPosition{0.0f, 0.0f, 0.0f};               ///< Ebeveyn merkezine göre yerel konumu.
     Quaternion localOrientation{0.0f, 0.0f, 0.0f, 1.0f};   ///< Ebeveyn eksenine göre yerel dönüş (rotasyon) değeri.
 };
+
 
 } // namespace Baryon::Core

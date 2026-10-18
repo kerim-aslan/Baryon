@@ -34,6 +34,18 @@
 
 namespace Baryon::systems {
 
+namespace {
+inline uint64_t makeEntityPairKey(ecs::Entity a, ecs::Entity b) {
+  uint32_t idx1 = ecs::EntityManager::getIndex(a);
+  uint32_t idx2 = ecs::EntityManager::getIndex(b);
+  if (idx1 > idx2)
+    std::swap(idx1, idx2);
+  return (static_cast<uint64_t>(idx1) << 32) | static_cast<uint64_t>(idx2);
+}
+} // namespace
+
+
+
 CollisionSystem::CollisionSystem(Core::Registry &registry,
                                  SpatialPartitioning &sp)
     : mRegistry(registry), mSpatialPartitioning(sp) {}
@@ -154,12 +166,7 @@ void CollisionSystem::step() {
                 }
 
                 // İki nesne için benzersiz anahtar üret
-                uint32_t id1 = entConv.id;
-                uint32_t id2 = entMesh.id;
-                if (id1 > id2)
-                  std::swap(id1, id2);
-                uint64_t key = (static_cast<uint64_t>(id1) << 32) |
-                               static_cast<uint64_t>(id2);
+                uint64_t key = makeEntityPairKey(entConv, entMesh);
 
                 auto [it, inserted] =
                     mManifoldMap.try_emplace(key, entConv, entMesh);
@@ -364,12 +371,7 @@ void CollisionSystem::step() {
 
 
       bool isTriggerPair = collA.isTrigger || collB.isTrigger;
-      uint32_t id1 = entityA.id;
-      uint32_t id2 = entityB.id;
-      if (id1 > id2)
-        std::swap(id1, id2);
-      uint64_t key =
-          (static_cast<uint64_t>(id1) << 32) | static_cast<uint64_t>(id2);
+      uint64_t key = makeEntityPairKey(entityA, entityB);
 
       if (isBoxA && isBoxB) {
         collision::ContactManifold satManifold(entityA, entityB);

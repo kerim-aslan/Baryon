@@ -52,8 +52,8 @@ int main() {
     memory::MemoryManager mm;
     ExtendedRegistry reg(mm);
 
-    ecs::Entity e1 = reg.createEntity();
-    ecs::Entity e2 = reg.createEntity();
+    ecs::Entity e1 = reg.createEntity().value();
+    ecs::Entity e2 = reg.createEntity().value();
 
     reg.addComponent<Pose>(e1, Pose{Vector3(1, 2, 3), Quaternion::identity()});
     reg.addComponent<CustomGameComponent>(e1, CustomGameComponent{500, 80.0f, true});
@@ -88,7 +88,7 @@ int main() {
     // 6. 16-bit Entity Generation and Slot Recycling Test
     {
         std::cout << "\n--- 16-bit Entity Generation and Recycling Test ---" << std::endl;
-        ecs::Entity originalEntity = reg.createEntity();
+        ecs::Entity originalEntity = reg.createEntity().value();
         reg.addComponent<Pose>(originalEntity, Pose(Vector3(0, 1, 0), Quaternion::identity()));
 
         CHECK_MSG(reg.isAlive(originalEntity), "Created entity must be alive!");
@@ -98,18 +98,19 @@ int main() {
         CHECK_MSG(!reg.isAlive(originalEntity), "Destroyed entity must not be alive!");
         CHECK_MSG(!reg.hasComponent<Pose>(originalEntity), "Destroyed entity must not report having component!");
 
-        static_assert(sizeof(decltype(ecs::EntityManager::getGeneration(originalEntity))) == 2,
-                      "Entity generation must be 16-bit (uint16_t)");
+        static_assert(sizeof(decltype(ecs::EntityManager::getGeneration(originalEntity))) == 4,
+                      "Entity generation must be 32-bit (uint32_t)");
+
 
         // Aynı slotu 300 kez (8-bit sınırının ötesinde) geri dönüştür
         ecs::Entity latestEntity = originalEntity;
         for (int i = 0; i < 300; ++i) {
-            latestEntity = reg.createEntity();
+            latestEntity = reg.createEntity().value();
             reg.destroyEntity(latestEntity);
         }
 
         // Şimdi aynı slota yeni bir varlık oluştur
-        ecs::Entity newEntityInSameSlot = reg.createEntity();
+        ecs::Entity newEntityInSameSlot = reg.createEntity().value();
         reg.addComponent<Pose>(newEntityInSameSlot, Pose(Vector3(5, 5, 5), Quaternion::identity()));
 
         bool oldHandleAlive = reg.isAlive(originalEntity);

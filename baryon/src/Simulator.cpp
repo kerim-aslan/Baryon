@@ -71,9 +71,14 @@ void Simulator::setSettings(const SimulationSettings &settings) {
  * @return Oluşturulan cismi yönetmek için kullanılan Body nesnesi.
  */
 Body Simulator::createBody(const Pose &transform, const collision::CollisionShape &shape) {
-	ecs::Entity entity = mRegistry.createEntity();
+	auto entityRes = mRegistry.createEntity();
+	if (!entityRes) {
+		return Body(ecs::Entity{0xFFFFFFFFFFFFFFFFULL}, mRegistry);
+	}
+	ecs::Entity entity = *entityRes;
 
 	mRegistry.addComponent(entity, transform);
+
 	mRegistry.addComponent(entity, ecs::ColliderData{ shape });
 
 	// Temel fizik bileşenlerinin ilk değerlerle atanması

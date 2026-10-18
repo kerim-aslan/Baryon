@@ -19,10 +19,12 @@
 #pragma once
 
 #include "../memory/MemoryManager.hpp"
+#include "../Core/PhysicsError.hpp"
 #include <deque>
 #include <vector>
 #include <cstdint>
 #include <cassert>
+#include <expected>
 
 /**
  * @file EntityManager.hpp
@@ -34,15 +36,19 @@ namespace Baryon::ecs {
 
 /**
  * @struct Entity
- * @brief Sahnedeki bir objeyi temsil eden 4 baytlık eşsiz kimlik (ID) yapısı.
- * @details İçerisinde varlığın hafızadaki sırasını (indeks) ve bu sıranın kaçıncı 
- *          kez kullanıldığını (nesil/versiyon) barındırır. Bu sayede silinmiş bir 
+ * @brief Sahnedeki bir objeyi temsil eden 8 baytlık (64-bit) eşsiz kimlik (ID) yapısı.
+ * @details İçerisinde varlığın hafızadaki sırasını (32-bit indeks) ve bu sıranın kaçıncı 
+ *          kez kullanıldığını (32-bit nesil/versiyon) barındırır. Bu sayede silinmiş bir 
  *          varlığın kimliği ile yanlışlıkla işlem yapılması engellenir.
  */
 struct Entity {
-    uint32_t id; ///< Varlık kimlik numarası (sıra ve versiyon bilgisinin birleşimi).
+    uint64_t id{0}; ///< Varlık kimlik numarası (32-bit sıra + 32-bit versiyon bilgisi).
     constexpr bool operator==(const Entity& other) const = default;
+    constexpr auto operator<=>(const Entity& other) const = default;
+    constexpr Entity() = default;
+    constexpr explicit Entity(uint64_t inId) : id(inId) {}
 };
+
 
 /**
  * @class EntityManager
@@ -51,10 +57,14 @@ struct Entity {
  *          bellek ve performans tasarrufu (geri dönüşüm) sağlar.
  */
 class EntityManager {
+public:
+    static constexpr uint32_t DEFAULT_MAX_CAPACITY = 0xFFFFFFFFULL;
+
 private:
     std::pmr::deque<uint32_t> mFreeIndices;   ///< Silinip geri dönüşüme atılmış müsait numaralar kuyruğu.
-    std::pmr::vector<uint16_t> mGenerations;  ///< Her bir numaranın kaçıncı versiyonda (nesilde) olduğunu tutan dizi (16-bit).
+    std::pmr::vector<uint32_t> mGenerations;  ///< Her bir numaranın kaçıncı versiyonda (nesilde) olduğunu tutan dizi (32-bit).
     uint32_t mCurrentIndex{0};                ///< Geri dönüşümde numara yoksa verilecek bir sonraki yeni numara.
+    uint32_t mMaxCapacity{DEFAULT_MAX_CAPACITY}; ///< İzin verilen maksimum varlık kapasitesi.
 
 public:
     /**
@@ -65,11 +75,24 @@ public:
           mGenerations(memoryManager.getPoolResource()) {}
 
     /**
+     * @brief İzin verilen maksimum varlık kapasitesini ayarlar.
+     */
+    void setMaxCapacity(uint32_t maxCapacity) { mMaxCapacity = maxCapacity; }
+
+    /**
+     * @brief Mevcut maksimum varlık kapasitesini döndürür.
+     */
+    [[nodiscard]] uint32_t getMaxCapacity() const { return mMaxCapacity; }
+
+    /**
      * @brief Sahneye yeni ve eşsiz bir varlık kimliği oluşturur.
      * @details Mümkünse eski (silinmiş) bir numarayı geri dönüştürür ve versiyonunu artırarak yeni bir kimlik verir.
-     * @return Oluşturulan yeni varlığın kimliği.
+     * @return Oluşturulan yeni varlığın kimliği veya kapasite aşıldığında PhysicsError::CapacityExceeded.
      */
-    [[nodiscard]] Entity createEntity() {
+    [[nodiscard]] std::expected<Entity, PhysicsError> createEntity() {
+        if (mFreeIndices.empty() && mCurrentIndex >= mMaxCapacity) {
+            return std::unexpected(PhysicsError::CapacityExceeded);
+        }
         uint32_t index;
         if (!mFreeIndices.empty()) {
             index = mFreeIndices.front();
@@ -78,7 +101,9 @@ public:
             index = mCurrentIndex++;
             mGenerations.push_back(0);
         }
-        return Entity{ (static_cast<uint32_t>(mGenerations[index]) << 16) | (index & 0x0000FFFF) };
+        uint64_t fullId = (static_cast<uint64_t>(mGenerations[index]) << 32) |
+                          (static_cast<uint64_t>(index) & 0xFFFFFFFFULL);
+        return Entity{ fullId };
     }
 
     /**
@@ -102,24 +127,24 @@ public:
      */
     [[nodiscard]] bool isAlive(Entity entity) const {
         uint32_t index = getIndex(entity);
-        uint16_t generation = getGeneration(entity);
+        uint32_t generation = getGeneration(entity);
         return index < mGenerations.size() && mGenerations[index] == generation;
     }
 
     /**
      * @brief Varlık kimliğinin içinden sadece sıra numarasını (indeksi) ayıklar.
-     * @details Motorun iç yapılarındaki dizilere erişmek için kullanılır (16-bit indeks, 0-65535).
+     * @details Motorun iç yapılarındaki dizilere erişmek için kullanılır (32-bit indeks).
      */
     [[nodiscard]] static constexpr uint32_t getIndex(Entity entity) {
-        return entity.id & 0x0000FFFF; 
+        return static_cast<uint32_t>(entity.id & 0xFFFFFFFFULL); 
     }
 
     /**
      * @brief Varlık kimliğinin içinden versiyon (nesil) bilgisini ayıklar.
-     * @details Varlığın silinip silinmediğini doğrulamak için kullanılır (16-bit nesil).
+     * @details Varlığın silinip silinmediğini doğrulamak için kullanılır (32-bit nesil).
      */
-    [[nodiscard]] static constexpr uint16_t getGeneration(Entity entity) {
-        return static_cast<uint16_t>((entity.id & 0xFFFF0000) >> 16); 
+    [[nodiscard]] static constexpr uint32_t getGeneration(Entity entity) {
+        return static_cast<uint32_t>((entity.id >> 32) & 0xFFFFFFFFULL); 
     }
 
     /** 
@@ -128,8 +153,9 @@ public:
      */
     struct State {
         std::vector<uint32_t> freeIndices;
-        std::vector<uint16_t> generations;
-        uint32_t currentIndex;
+        std::vector<uint32_t> generations;
+        uint32_t currentIndex{0};
+        uint32_t maxCapacity{DEFAULT_MAX_CAPACITY};
     };
 
     /** 
@@ -138,8 +164,9 @@ public:
     [[nodiscard]] State save() const {
         return State{
             std::vector<uint32_t>(mFreeIndices.begin(), mFreeIndices.end()),
-            std::vector<uint16_t>(mGenerations.begin(), mGenerations.end()),
-            mCurrentIndex
+            std::vector<uint32_t>(mGenerations.begin(), mGenerations.end()),
+            mCurrentIndex,
+            mMaxCapacity
         };
     }
 
@@ -150,7 +177,16 @@ public:
         mFreeIndices.assign(state.freeIndices.begin(), state.freeIndices.end());
         mGenerations.assign(state.generations.begin(), state.generations.end());
         mCurrentIndex = state.currentIndex;
+        mMaxCapacity = state.maxCapacity;
     }
 };
 
 } // namespace Baryon::ecs
+
+namespace std {
+template <> struct hash<Baryon::ecs::Entity> {
+    size_t operator()(const Baryon::ecs::Entity& e) const noexcept {
+        return hash<uint64_t>{}(e.id);
+    }
+};
+}

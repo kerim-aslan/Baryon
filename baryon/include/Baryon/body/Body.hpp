@@ -29,16 +29,10 @@
  * ECS varlıklarını ve bileşenlerini güvenli bir şekilde yönetmek için
  * kullanılır.
  */
+#include "../Core/PhysicsError.hpp"
+
 namespace Baryon {
 
-/**
- * @brief Fizik işlemlerinde oluşabilecek hata kodları.
- */
-enum class PhysicsError {
-  EntityDead,       ///< Varlık silinmiş veya geçersiz.
-  ComponentMissing, ///< Varlıkta istenilen bileşen bulunamadı.
-  InvalidValue      ///< Geçersiz parametre değeri.
-};
 
 /**
  * @class Body

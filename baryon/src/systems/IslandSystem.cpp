@@ -43,7 +43,7 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::buildIslands(
 
   std::vector<std::vector<ecs::Entity>> activeIslands;
 
-  std::unordered_map<uint32_t, std::vector<ecs::Entity>> adjList;
+  std::unordered_map<uint64_t, std::vector<ecs::Entity>> adjList;
   adjList.reserve(mRegistry.getComponentPool<Core::BodyState>().getAllEntities().size());
 
   auto addEdge = [&](ecs::Entity a, ecs::Entity b) {
@@ -76,7 +76,8 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::buildIslands(
     addEdge(constraint.entityA, constraint.entityB);
 
   // BFS algoritması ile bağımsız adaları bul
-  std::unordered_set<uint32_t> visited;
+  std::unordered_set<uint64_t> visited;
+
   auto &entities =
       mRegistry.getComponentPool<Core::BodyState>().getAllEntities();
 
