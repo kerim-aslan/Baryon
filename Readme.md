@@ -61,15 +61,21 @@ Simülasyon dünyasını, çarpışma gövdelerini, temas noktalarını ve anoma
 .\build\tools\debugger\BaryonVisualDebugger.exe
 ```
 
-### 2. Otomatik Doğrulama Testleri
-Motorun kararlılığını ve tünelleme (CCD) davranışlarını test etmek için:
+### 2. Otomatik Doğrulama Testleri ve Regresyon Koşumu
+Motorun kararlılığını, tünelleme (CCD) davranışlarını ve regresyon durumunu test etmek için:
 
 ```bash
-# Tünelleme ve yüksek hız çarpışma (CCD) testleri:
-.\build\tests\Release\TunnelingTest.exe
+# Tüm test paketini ctest ile çalıştırma:
+ctest --test-dir build --output-on-failure
 
-# Kapsamlı özellik ve entegrasyon testleri:
-.\build\tests\Release\FeatureVerificationTest.exe
+# Referans baseline regresyon testi (Faz 0):
+.\build\BaselineRegressionTest.exe
+
+# Headless Physics Harness (Metrik toplayıcı ve senaryo koşturucu):
+.\build\BaryonHarness.exe --help
+.\build\BaryonHarness.exe --list
+.\build\BaryonHarness.exe --scenario slide_friction --json out.json --csv out.csv
+.\build\BaryonHarness.exe --all
 ```
 
 ---

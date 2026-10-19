@@ -182,6 +182,26 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CcdBounceAirTest.cpp")
     add_test(NAME CcdBounceAirTest COMMAND CcdBounceAirTest)
 endif()
 
+# Headless Physics Harness Library & Executable (Faz 0.1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
+    add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)
+    target_include_directories(BaryonHarnessLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(BaryonHarnessLib PUBLIC Baryon::BaryonStatic)
+
+    add_executable(BaryonHarness tests/harness/main.cpp)
+    target_link_libraries(BaryonHarness PRIVATE BaryonHarnessLib)
+endif()
+
+# Baseline Regression Test (Faz 0.2)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/BaselineRegressionTest.cpp")
+    add_executable(BaselineRegressionTest tests/BaselineRegressionTest.cpp)
+    target_link_libraries(BaselineRegressionTest PRIVATE BaryonHarnessLib Baryon::BaryonStatic)
+    target_compile_definitions(BaselineRegressionTest PRIVATE 
+        BASELINE_FILE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tests/baselines/baseline_v1.json"
+    )
+    add_test(NAME BaselineRegressionTest COMMAND BaselineRegressionTest)
+endif()
+
 
 # 4. Baryon Görsel Teşhis ve Test Aracı (Baryon Visual Debugger & Testbed)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/debugger/CMakeLists.txt")

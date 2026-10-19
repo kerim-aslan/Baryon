@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-10-19",
+  "compiler": "GCC 15.2.0 C++23",
+  "settings": {
+    "dt": "1/60",
+    "gravity": [0.0, -9.81, 0.0],
+    "velocity_iterations": 12,
+    "position_iterations": 4
+  },
+  "baselines": {
+    "slide_friction": {
+      "description": "Kutu, mu=0.5, v0=5 m/s zeminde kayar",
+      "metric": "final_x",
+      "expected_value": 2.52814,
+      "theoretical_value": 2.5484,
+      "tolerance_pct": 2.0
+    },
+    "sphere_restitution": {
+      "description": "Kure, e=0.8, 5 m'den duser, 2. tepe (1. sicrama apeksi)",
+      "metric": "peak_1",
+      "expected_value": 3.11028,
+      "ideal_value": 3.4,
+      "tolerance_pct": 2.0
+    },
+    "distance_joint": {
+      "description": "Mesafe eklemi, uzunluk 2.0",
+      "metric": "max_drift_pct",
+      "target_distance": 2.0,
+      "min_distance": 2.0,
+      "max_distance": 2.0,
+      "drift_threshold": 0.013,
+      "tolerance_pct": 2.0
+    },
+    "heavy_on_light_stack": {
+      "description": "100:1 kutle oranli 2 kutu yigini",
+      "metric_bottom": "bottom_y",
+      "expected_bottom_y": 0.48229,
+      "metric_top": "top_y",
+      "expected_top_y": 1.47138,
+      "tolerance_pct": 2.0
+    },
+    "ccd_bullet": {
+      "description": "CCD, 500 m/s kure, 0.1 m kalinlikli duvar (gecmez)",
+      "metric": "final_x",
+      "expected_value": 9.86048,
+      "wall_face_x": 9.95,
+      "tolerance_pct": 2.0
+    },
+    "determinism_40": {
+      "description": "Determinizm (40 cisim, 600 adim, 2 kosu)",
+      "metric": "state_hash_exact_match",
+      "expected_state_hash": "0x3d1d9c6e0c0cb4b1",
+      "match_required": true
+    }
+  }
+}
