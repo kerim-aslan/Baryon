@@ -361,7 +361,10 @@ static float gjkDistanceImpl(const CollisionShape &shapeA,
   float bu = 1.0f, bv = 0.0f, bw = 0.0f, bx = 0.0f;
 
   for (int iter = 0; iter < kMaxIter; ++iter) {
-    bu = 1.0f; bv = 0.0f; bw = 0.0f; bx = 0.0f;
+    bu = 1.0f;
+    bv = 0.0f;
+    bw = 0.0f;
+    bx = 0.0f;
 
     if (n == 1) {
       closest = simplex[0].w;
@@ -466,8 +469,10 @@ static float gjkDistanceImpl(const CollisionShape &shapeA,
  */
 struct EPAVertex {
   Vector3 minkowskiPoint; ///< Minkowski uzayındaki nokta koordinatı
-  Vector3 supportA; ///< Temas noktasını geri hesaplamak için A şeklindeki karşılığı
-  Vector3 supportB; ///< Temas noktasını geri hesaplamak için B şeklindeki karşılığı
+  Vector3
+      supportA; ///< Temas noktasını geri hesaplamak için A şeklindeki karşılığı
+  Vector3
+      supportB; ///< Temas noktasını geri hesaplamak için B şeklindeki karşılığı
 };
 
 struct EPAFace {
@@ -525,7 +530,9 @@ Vector3 NarrowPhase::getSupportPoint(const CollisionShape &shape,
           Vector3 bottom(0, -halfH, 0);
           Vector3 point =
               (localDir.dot(top) > localDir.dot(bottom)) ? top : bottom;
-          Vector3 normDir = (localDir.lengthSquare() > 1e-12f) ? localDir.getNormalized() : Vector3(1.0f, 0.0f, 0.0f);
+          Vector3 normDir = (localDir.lengthSquare() > 1e-12f)
+                                ? localDir.getNormalized()
+                                : Vector3(1.0f, 0.0f, 0.0f);
           Vector3 localResult = point + (normDir * arg.radius);
           return transform.position + (transform.orientation * localResult);
         } else if constexpr (std::is_same_v<T, ConvexHullShape>) {
@@ -572,12 +579,16 @@ static bool raycastSphere(const SphereShape &s, const Pose &transform,
   Vector3 m = ray.origin - transform.position;
   float b = m.dot(ray.direction);
   float c = m.dot(m) - s.radius * s.radius;
-  if (c > 0.0f && b > 0.0f) return false;
+  if (c > 0.0f && b > 0.0f)
+    return false;
   float discr = b * b - c;
-  if (discr < 0.0f) return false;
+  if (discr < 0.0f)
+    return false;
   float t = -b - std::sqrt(discr);
-  if (t < 0.0f) t = 0.0f;
-  if (t > ray.maxDistance) return false;
+  if (t < 0.0f)
+    t = 0.0f;
+  if (t > ray.maxDistance)
+    return false;
   hit.hasHit = true;
   hit.distance = t;
   hit.position = ray.origin + ray.direction * t;
@@ -585,8 +596,8 @@ static bool raycastSphere(const SphereShape &s, const Pose &transform,
   return true;
 }
 
-static bool raycastBox(const BoxShape &s, const Pose &transform,
-                       const Ray &ray, RaycastHit &hit) {
+static bool raycastBox(const BoxShape &s, const Pose &transform, const Ray &ray,
+                       RaycastHit &hit) {
   Vector3 p = transform.getInverse() * ray.origin;
   Vector3 d = transform.orientation.getInverse() * ray.direction;
   float tmin = 0.0f;
@@ -594,7 +605,8 @@ static bool raycastBox(const BoxShape &s, const Pose &transform,
   Vector3 normal(0, 0, 0);
 
   for (int i = 0; i < 3; ++i) {
-    float invD = 1.0f / (std::abs(d[i]) > 1e-6f ? d[i] : (d[i] < 0.0f ? -1e-6f : 1e-6f));
+    float invD =
+        1.0f / (std::abs(d[i]) > 1e-6f ? d[i] : (d[i] < 0.0f ? -1e-6f : 1e-6f));
     float t0 = (-s.halfExtents[i] - p[i]) * invD;
     float t1 = (s.halfExtents[i] - p[i]) * invD;
     Vector3 signNormal(0, 0, 0);
@@ -608,9 +620,11 @@ static bool raycastBox(const BoxShape &s, const Pose &transform,
       normal = signNormal;
     }
     tmax = std::min(tmax, t1);
-    if (tmax < tmin) return false;
+    if (tmax < tmin)
+      return false;
   }
-  if (tmin > ray.maxDistance) return false;
+  if (tmin > ray.maxDistance)
+    return false;
   hit.hasHit = true;
   hit.distance = tmin;
   hit.position = ray.origin + ray.direction * tmin;
@@ -644,7 +658,9 @@ static bool raycastCapsule(const CapsuleShape &s, const Pose &transform,
           if (yAtHit >= -halfH && yAtHit <= halfH) {
             if (tCandidate < closestT) {
               closestT = tCandidate;
-              localHitNorm = Vector3(p.x + d.x * tCandidate, 0.0f, p.z + d.z * tCandidate).getNormalized();
+              localHitNorm =
+                  Vector3(p.x + d.x * tCandidate, 0.0f, p.z + d.z * tCandidate)
+                      .getNormalized();
               hitAny = true;
             }
           }
@@ -663,7 +679,8 @@ static bool raycastCapsule(const CapsuleShape &s, const Pose &transform,
       float tSphere = -bSphere - std::sqrt(discrSphere);
       if (tSphere > 0.0f && tSphere <= ray.maxDistance) {
         Vector3 hitP = p + d * tSphere;
-        if ((capY > 0.0f && hitP.y >= halfH) || (capY < 0.0f && hitP.y <= -halfH)) {
+        if ((capY > 0.0f && hitP.y >= halfH) ||
+            (capY < 0.0f && hitP.y <= -halfH)) {
           if (tSphere < closestT) {
             closestT = tSphere;
             localHitNorm = (hitP - center).getNormalized();
@@ -693,21 +710,25 @@ static bool raycastTriangle(const TriangleShape &s, const Pose &transform,
   Vector3 edge2 = v2 - v0;
   Vector3 h = ray.direction.cross(edge2);
   float a = edge1.dot(h);
-  if (std::abs(a) < 1e-7f) return false;
+  if (std::abs(a) < 1e-7f)
+    return false;
   float f = 1.0f / a;
   Vector3 sVec = ray.origin - v0;
   float u = f * sVec.dot(h);
-  if (u < 0.0f || u > 1.0f) return false;
+  if (u < 0.0f || u > 1.0f)
+    return false;
   Vector3 q = sVec.cross(edge1);
   float v = f * ray.direction.dot(q);
-  if (v < 0.0f || u + v > 1.0f) return false;
+  if (v < 0.0f || u + v > 1.0f)
+    return false;
   float t = f * edge2.dot(q);
   if (t > 1e-4f && t <= ray.maxDistance) {
     hit.hasHit = true;
     hit.distance = t;
     hit.position = ray.origin + ray.direction * t;
     hit.normal = edge1.cross(edge2).getNormalized();
-    if (hit.normal.dot(ray.direction) > 0.0f) hit.normal = -hit.normal;
+    if (hit.normal.dot(ray.direction) > 0.0f)
+      hit.normal = -hit.normal;
     return true;
   }
   return false;
@@ -715,8 +736,10 @@ static bool raycastTriangle(const TriangleShape &s, const Pose &transform,
 
 static bool raycastStaticMesh(const StaticMeshShape &s, const Pose &transform,
                               const Ray &ray, RaycastHit &hit) {
-  if (!s.mesh) return false;
-  if (!s.mesh->getBounds().testCollision(ray.computeAABB())) return false;
+  if (!s.mesh)
+    return false;
+  if (!s.mesh->getBounds().testCollision(ray.computeAABB()))
+    return false;
 
   bool hitAny = false;
   float closestT = ray.maxDistance;
@@ -730,19 +753,23 @@ static bool raycastStaticMesh(const StaticMeshShape &s, const Pose &transform,
     Vector3 edge2 = v2 - v0;
     Vector3 h = ray.direction.cross(edge2);
     float a = edge1.dot(h);
-    if (std::abs(a) < 1e-7f) return;
+    if (std::abs(a) < 1e-7f)
+      return;
     float f = 1.0f / a;
     Vector3 sVec = ray.origin - v0;
     float u = f * sVec.dot(h);
-    if (u < 0.0f || u > 1.0f) return;
+    if (u < 0.0f || u > 1.0f)
+      return;
     Vector3 q = sVec.cross(edge1);
     float v = f * ray.direction.dot(q);
-    if (v < 0.0f || u + v > 1.0f) return;
+    if (v < 0.0f || u + v > 1.0f)
+      return;
     float t = f * edge2.dot(q);
     if (t > 1e-4f && t < closestT) {
       closestT = t;
       hitNorm = edge1.cross(edge2).getNormalized();
-      if (hitNorm.dot(ray.direction) > 0.0f) hitNorm = -hitNorm;
+      if (hitNorm.dot(ray.direction) > 0.0f)
+        hitNorm = -hitNorm;
       hitAny = true;
     }
   });
@@ -785,9 +812,10 @@ bool NarrowPhase::raycast(const CollisionShape &shape, const Pose &transform,
       shape.getVariant());
 }
 
-
-bool NarrowPhase::testSphereSphere(const SphereShape &sphereA, const Pose &transformA,
-                                   const SphereShape &sphereB, const Pose &transformB,
+bool NarrowPhase::testSphereSphere(const SphereShape &sphereA,
+                                   const Pose &transformA,
+                                   const SphereShape &sphereB,
+                                   const Pose &transformB,
                                    CollisionInfo &outInfo) {
   Vector3 delta = transformA.position - transformB.position;
   float distSq = delta.lengthSquare();
@@ -800,7 +828,9 @@ bool NarrowPhase::testSphereSphere(const SphereShape &sphereA, const Pose &trans
   if (dist > 1e-6f) {
     outInfo.normal = delta / dist; // B'den A'ya doğru bakar
     outInfo.penetration = totalRadius - dist;
-    outInfo.contactPoint = transformB.position + outInfo.normal * (sphereB.radius - outInfo.penetration * 0.5f);
+    outInfo.contactPoint =
+        transformB.position +
+        outInfo.normal * (sphereB.radius - outInfo.penetration * 0.5f);
   } else {
     outInfo.normal = Vector3(0.0f, 1.0f, 0.0f);
     outInfo.penetration = totalRadius;
@@ -809,9 +839,10 @@ bool NarrowPhase::testSphereSphere(const SphereShape &sphereA, const Pose &trans
   return true;
 }
 
-bool NarrowPhase::testSphereBox(const SphereShape &sphereA, const Pose &transformA,
-                               const BoxShape &boxB, const Pose &transformB,
-                               CollisionInfo &outInfo) {
+bool NarrowPhase::testSphereBox(const SphereShape &sphereA,
+                                const Pose &transformA, const BoxShape &boxB,
+                                const Pose &transformB,
+                                CollisionInfo &outInfo) {
   Quaternion invRotB = transformB.orientation.getConjugate();
   Vector3 relPos = transformA.position - transformB.position;
   Vector3 localSpherePos = invRotB * relPos;
@@ -832,9 +863,11 @@ bool NarrowPhase::testSphereBox(const SphereShape &sphereA, const Pose &transfor
   if (distSq > 1e-8f) {
     float dist = std::sqrt(distSq);
     Vector3 localNormal = localDelta / dist;
-    outInfo.normal = transformB.orientation * localNormal; // B'den A'ya doğru bakar
+    outInfo.normal =
+        transformB.orientation * localNormal; // B'den A'ya doğru bakar
     outInfo.penetration = sphereA.radius - dist;
-    outInfo.contactPoint = transformB.position + (transformB.orientation * closestPointLocal);
+    outInfo.contactPoint =
+        transformB.position + (transformB.orientation * closestPointLocal);
   } else {
     // Küre merkezi kutunun içinde kalmışsa en yakın yüze doğru it
     Vector3 d(boxB.halfExtents.x - std::abs(localSpherePos.x),
@@ -844,19 +877,23 @@ bool NarrowPhase::testSphereBox(const SphereShape &sphereA, const Pose &transfor
     float minD = d.y;
     if (d.x < minD) {
       minD = d.x;
-      localNormal = Vector3((localSpherePos.x >= 0.0f) ? 1.0f : -1.0f, 0.0f, 0.0f);
+      localNormal =
+          Vector3((localSpherePos.x >= 0.0f) ? 1.0f : -1.0f, 0.0f, 0.0f);
     }
     if (d.y < minD) {
       minD = d.y;
-      localNormal = Vector3(0.0f, (localSpherePos.y >= 0.0f) ? 1.0f : -1.0f, 0.0f);
+      localNormal =
+          Vector3(0.0f, (localSpherePos.y >= 0.0f) ? 1.0f : -1.0f, 0.0f);
     }
     if (d.z < minD) {
       minD = d.z;
-      localNormal = Vector3(0.0f, 0.0f, (localSpherePos.z >= 0.0f) ? 1.0f : -1.0f);
+      localNormal =
+          Vector3(0.0f, 0.0f, (localSpherePos.z >= 0.0f) ? 1.0f : -1.0f);
     }
     outInfo.normal = transformB.orientation * localNormal;
     outInfo.penetration = sphereA.radius + minD;
-    outInfo.contactPoint = transformA.position - (outInfo.normal * sphereA.radius);
+    outInfo.contactPoint =
+        transformA.position - (outInfo.normal * sphereA.radius);
   }
   return true;
 }
@@ -864,304 +901,343 @@ bool NarrowPhase::testSphereBox(const SphereShape &sphereA, const Pose &transfor
 namespace {
 
 struct ClipVertex {
-    Vector3 point;
-    float depth{0.0f};
+  Vector3 point;
+  float depth{0.0f};
 };
 
-static uint32_t clipPolygonWithPlane(const ClipVertex inVerts[], uint32_t inCount,
-                                     const Vector3& planeOrigin, const Vector3& planeNormal,
+static uint32_t clipPolygonWithPlane(const ClipVertex inVerts[],
+                                     uint32_t inCount,
+                                     const Vector3 &planeOrigin,
+                                     const Vector3 &planeNormal,
                                      ClipVertex outVerts[]) {
-    uint32_t outCount = 0;
-    if (inCount == 0) return 0;
+  uint32_t outCount = 0;
+  if (inCount == 0)
+    return 0;
 
-    for (uint32_t i = 0; i < inCount; ++i) {
-        const ClipVertex& v1 = inVerts[i];
-        const ClipVertex& v2 = inVerts[(i + 1) % inCount];
+  for (uint32_t i = 0; i < inCount; ++i) {
+    const ClipVertex &v1 = inVerts[i];
+    const ClipVertex &v2 = inVerts[(i + 1) % inCount];
 
-        float d1 = (v1.point - planeOrigin).dot(planeNormal);
-        float d2 = (v2.point - planeOrigin).dot(planeNormal);
+    float d1 = (v1.point - planeOrigin).dot(planeNormal);
+    float d2 = (v2.point - planeOrigin).dot(planeNormal);
 
-        if (d1 <= 0.0f) {
-            outVerts[outCount++] = v1;
-        }
-        if ((d1 > 0.0f && d2 < 0.0f) || (d1 < 0.0f && d2 > 0.0f)) {
-            float t = d1 / (d1 - d2);
-            ClipVertex vInter;
-            vInter.point = v1.point + (v2.point - v1.point) * t;
-            outVerts[outCount++] = vInter;
-        }
+    if (d1 <= 0.0f) {
+      outVerts[outCount++] = v1;
     }
-    return outCount;
+    if ((d1 > 0.0f && d2 < 0.0f) || (d1 < 0.0f && d2 > 0.0f)) {
+      float t = d1 / (d1 - d2);
+      ClipVertex vInter;
+      vInter.point = v1.point + (v2.point - v1.point) * t;
+      outVerts[outCount++] = vInter;
+    }
+  }
+  return outCount;
 }
 
 struct BoxCandidate {
-    Vector3 point;
-    float depth;
-    float u;
-    float v;
+  Vector3 point;
+  float depth;
+  float u;
+  float v;
 };
 
-static void selectQuadrantContacts(const BoxCandidate *candidates, uint32_t candidateCount,
-                                   const Pose &transformA, const Pose &transformB,
+static void selectQuadrantContacts(const BoxCandidate *candidates,
+                                   uint32_t candidateCount,
+                                   const Pose &transformA,
+                                   const Pose &transformB,
                                    ContactManifold &outManifold) {
-    if (candidateCount <= 4) {
-        for (uint32_t i = 0; i < candidateCount; ++i) {
-            ContactPoint cp;
-            cp.worldPosition = candidates[i].point;
-            cp.penetration = candidates[i].depth;
-            cp.localPointA = transformA.orientation.getConjugate() * (cp.worldPosition - transformA.position);
-            cp.localPointB = transformB.orientation.getConjugate() * (cp.worldPosition - transformB.position);
-            cp.normalImpulse = 0.0f;
-            cp.tangentImpulse1 = 0.0f;
-            cp.tangentImpulse2 = 0.0f;
-            cp.splitImpulse = 0.0f;
-            outManifold.addContact(cp);
-        }
-        return;
+  if (candidateCount <= 4) {
+    for (uint32_t i = 0; i < candidateCount; ++i) {
+      ContactPoint cp;
+      cp.worldPosition = candidates[i].point;
+      cp.penetration = candidates[i].depth;
+      cp.localPointA = transformA.orientation.getConjugate() *
+                       (cp.worldPosition - transformA.position);
+      cp.localPointB = transformB.orientation.getConjugate() *
+                       (cp.worldPosition - transformB.position);
+      cp.normalImpulse = 0.0f;
+      cp.tangentImpulse1 = 0.0f;
+      cp.tangentImpulse2 = 0.0f;
+      cp.splitImpulse = 0.0f;
+      outManifold.addContact(cp);
     }
+    return;
+  }
 
-    // 4 kadranda en uç noktaları seç (asimetrik tork ve sallantıyı önler)
-    int chosen[4] = {-1, -1, -1, -1};
-    uint32_t chosenCount = 0;
-    for (int q = 0; q < 4; ++q) {
-        float maxVal = -1e30f;
-        int bestCandidate = -1;
-        for (uint32_t i = 0; i < candidateCount; ++i) {
-            float val = 0.0f;
-            if (q == 0) val = candidates[i].u + candidates[i].v;
-            else if (q == 1) val = -candidates[i].u + candidates[i].v;
-            else if (q == 2) val = -candidates[i].u - candidates[i].v;
-            else val = candidates[i].u - candidates[i].v;
+  // 4 kadranda en uç noktaları seç (asimetrik tork ve sallantıyı önler)
+  int chosen[4] = {-1, -1, -1, -1};
+  uint32_t chosenCount = 0;
+  for (int q = 0; q < 4; ++q) {
+    float maxVal = -1e30f;
+    int bestCandidate = -1;
+    for (uint32_t i = 0; i < candidateCount; ++i) {
+      float val = 0.0f;
+      if (q == 0)
+        val = candidates[i].u + candidates[i].v;
+      else if (q == 1)
+        val = -candidates[i].u + candidates[i].v;
+      else if (q == 2)
+        val = -candidates[i].u - candidates[i].v;
+      else
+        val = candidates[i].u - candidates[i].v;
 
-            if (val > maxVal) {
-                maxVal = val;
-                bestCandidate = static_cast<int>(i);
-            }
-        }
-        bool alreadyChosen = false;
-        for (uint32_t k = 0; k < chosenCount; ++k) {
-            if (chosen[k] == bestCandidate) {
-                alreadyChosen = true;
-                break;
-            }
-        }
-        if (!alreadyChosen && bestCandidate != -1) {
-            chosen[chosenCount++] = bestCandidate;
-        }
+      if (val > maxVal) {
+        maxVal = val;
+        bestCandidate = static_cast<int>(i);
+      }
     }
-    for (uint32_t i = 0; i < candidateCount && chosenCount < 4; ++i) {
-        bool alreadyChosen = false;
-        for (uint32_t k = 0; k < chosenCount; ++k) {
-            if (chosen[k] == static_cast<int>(i)) {
-                alreadyChosen = true;
-                break;
-            }
-        }
-        if (!alreadyChosen) {
-            chosen[chosenCount++] = static_cast<int>(i);
-        }
+    bool alreadyChosen = false;
+    for (uint32_t k = 0; k < chosenCount; ++k) {
+      if (chosen[k] == bestCandidate) {
+        alreadyChosen = true;
+        break;
+      }
     }
-    for (uint32_t i = 0; i < chosenCount; ++i) {
-        const auto& cand = candidates[chosen[i]];
-        ContactPoint cp;
-        cp.worldPosition = cand.point;
-        cp.penetration = cand.depth;
-        cp.localPointA = transformA.orientation.getConjugate() * (cp.worldPosition - transformA.position);
-        cp.localPointB = transformB.orientation.getConjugate() * (cp.worldPosition - transformB.position);
-        cp.normalImpulse = 0.0f;
-        cp.tangentImpulse1 = 0.0f;
-        cp.tangentImpulse2 = 0.0f;
-        cp.splitImpulse = 0.0f;
-        outManifold.addContact(cp);
+    if (!alreadyChosen && bestCandidate != -1) {
+      chosen[chosenCount++] = bestCandidate;
     }
+  }
+  for (uint32_t i = 0; i < candidateCount && chosenCount < 4; ++i) {
+    bool alreadyChosen = false;
+    for (uint32_t k = 0; k < chosenCount; ++k) {
+      if (chosen[k] == static_cast<int>(i)) {
+        alreadyChosen = true;
+        break;
+      }
+    }
+    if (!alreadyChosen) {
+      chosen[chosenCount++] = static_cast<int>(i);
+    }
+  }
+  for (uint32_t i = 0; i < chosenCount; ++i) {
+    const auto &cand = candidates[chosen[i]];
+    ContactPoint cp;
+    cp.worldPosition = cand.point;
+    cp.penetration = cand.depth;
+    cp.localPointA = transformA.orientation.getConjugate() *
+                     (cp.worldPosition - transformA.position);
+    cp.localPointB = transformB.orientation.getConjugate() *
+                     (cp.worldPosition - transformB.position);
+    cp.normalImpulse = 0.0f;
+    cp.tangentImpulse1 = 0.0f;
+    cp.tangentImpulse2 = 0.0f;
+    cp.splitImpulse = 0.0f;
+    outManifold.addContact(cp);
+  }
 }
 
-static void getBoxFaceTangents(int axisIdx, const Vector3 axes[3], const Vector3 &ext,
-                               Vector3 &outU, Vector3 &outV, float &outHalfU, float &outHalfV) {
-    if (axisIdx == 0) {
-        outU = axes[1]; outHalfU = ext.y;
-        outV = axes[2]; outHalfV = ext.z;
-    } else if (axisIdx == 1) {
-        outU = axes[0]; outHalfU = ext.x;
-        outV = axes[2]; outHalfV = ext.z;
-    } else {
-        outU = axes[0]; outHalfU = ext.x;
-        outV = axes[1]; outHalfV = ext.y;
-    }
+static void getBoxFaceTangents(int axisIdx, const Vector3 axes[3],
+                               const Vector3 &ext, Vector3 &outU, Vector3 &outV,
+                               float &outHalfU, float &outHalfV) {
+  if (axisIdx == 0) {
+    outU = axes[1];
+    outHalfU = ext.y;
+    outV = axes[2];
+    outHalfV = ext.z;
+  } else if (axisIdx == 1) {
+    outU = axes[0];
+    outHalfU = ext.x;
+    outV = axes[2];
+    outHalfV = ext.z;
+  } else {
+    outU = axes[0];
+    outHalfU = ext.x;
+    outV = axes[1];
+    outHalfV = ext.y;
+  }
 }
 
-static void clipBoxBoxFaces(const BoxShape& boxA, const Pose& transformA,
-                            const BoxShape& boxB, const Pose& transformB,
+static void clipBoxBoxFaces(const BoxShape &boxA, const Pose &transformA,
+                            const BoxShape &boxB, const Pose &transformB,
                             const Vector3 axesA[3], const Vector3 axesB[3],
-                            const Vector3& bestAxis, int bestAxisIndex,
-                            ContactManifold& outManifold) {
-    bool refIsA = (bestAxisIndex < 3);
-    const Pose& refPose = refIsA ? transformA : transformB;
-    const Pose& incPose = refIsA ? transformB : transformA;
-    const Vector3& refExt = refIsA ? boxA.halfExtents : boxB.halfExtents;
-    const Vector3& incExt = refIsA ? boxB.halfExtents : boxA.halfExtents;
-    const Vector3* refAxes = refIsA ? axesA : axesB;
-    const Vector3* incAxes = refIsA ? axesB : axesA;
+                            const Vector3 &bestAxis, int bestAxisIndex,
+                            ContactManifold &outManifold) {
+  bool refIsA = (bestAxisIndex < 3);
+  const Pose &refPose = refIsA ? transformA : transformB;
+  const Pose &incPose = refIsA ? transformB : transformA;
+  const Vector3 &refExt = refIsA ? boxA.halfExtents : boxB.halfExtents;
+  const Vector3 &incExt = refIsA ? boxB.halfExtents : boxA.halfExtents;
+  const Vector3 *refAxes = refIsA ? axesA : axesB;
+  const Vector3 *incAxes = refIsA ? axesB : axesA;
 
-    Vector3 refFaceNormal = refIsA ? -bestAxis : bestAxis;
-    int refFaceAxisIdx = refIsA ? bestAxisIndex : (bestAxisIndex - 3);
-    Vector3 refAxis = refAxes[refFaceAxisIdx];
-    if (refAxis.dot(refFaceNormal) < 0.0f) refAxis = -refAxis;
-    refFaceNormal = refAxis;
+  Vector3 refFaceNormal = refIsA ? -bestAxis : bestAxis;
+  int refFaceAxisIdx = refIsA ? bestAxisIndex : (bestAxisIndex - 3);
+  Vector3 refAxis = refAxes[refFaceAxisIdx];
+  if (refAxis.dot(refFaceNormal) < 0.0f)
+    refAxis = -refAxis;
+  refFaceNormal = refAxis;
 
-    int incFaceAxisIdx = 0;
-    float minDot = 1e30f;
-    for (int i = 0; i < 3; ++i) {
-        float d1 = incAxes[i].dot(refFaceNormal);
-        float d2 = (-incAxes[i]).dot(refFaceNormal);
-        if (d1 < minDot) { minDot = d1; incFaceAxisIdx = i; }
-        if (d2 < minDot) { minDot = d2; incFaceAxisIdx = i; }
+  int incFaceAxisIdx = 0;
+  float minDot = 1e30f;
+  for (int i = 0; i < 3; ++i) {
+    float d1 = incAxes[i].dot(refFaceNormal);
+    float d2 = (-incAxes[i]).dot(refFaceNormal);
+    if (d1 < minDot) {
+      minDot = d1;
+      incFaceAxisIdx = i;
     }
-    Vector3 incFaceNormal = incAxes[incFaceAxisIdx];
-    if (incFaceNormal.dot(refFaceNormal) > 0.0f) incFaceNormal = -incFaceNormal;
-
-    Vector3 incUAxis, incVAxis;
-    float incHalfU = 0.0f, incHalfV = 0.0f;
-    getBoxFaceTangents(incFaceAxisIdx, incAxes, incExt, incUAxis, incVAxis, incHalfU, incHalfV);
-    Vector3 incU = incUAxis * incHalfU;
-    Vector3 incV = incVAxis * incHalfV;
-    float incDist = (incFaceAxisIdx == 0 ? incExt.x : (incFaceAxisIdx == 1 ? incExt.y : incExt.z));
-    Vector3 incFaceCenter = incPose.position + incFaceNormal * incDist;
-
-    ClipVertex poly1[8];
-    ClipVertex poly2[8];
-    poly1[0].point = incFaceCenter + incU + incV;
-    poly1[1].point = incFaceCenter - incU + incV;
-    poly1[2].point = incFaceCenter - incU - incV;
-    poly1[3].point = incFaceCenter + incU - incV;
-    uint32_t polyCount = 4;
-
-    Vector3 refU, refV;
-    float refHalfU = 0.0f, refHalfV = 0.0f;
-    getBoxFaceTangents(refFaceAxisIdx, refAxes, refExt, refU, refV, refHalfU, refHalfV);
-
-    Vector3 sidePlanes[4][2] = {
-        { refPose.position + refU * refHalfU, refU },
-        { refPose.position - refU * refHalfU, -refU },
-        { refPose.position + refV * refHalfV, refV },
-        { refPose.position - refV * refHalfV, -refV }
-    };
-
-    for (int i = 0; i < 4; ++i) {
-        polyCount = clipPolygonWithPlane(poly1, polyCount, sidePlanes[i][0], sidePlanes[i][1], poly2);
-        for (uint32_t k = 0; k < polyCount; ++k) poly1[k] = poly2[k];
+    if (d2 < minDot) {
+      minDot = d2;
+      incFaceAxisIdx = i;
     }
+  }
+  Vector3 incFaceNormal = incAxes[incFaceAxisIdx];
+  if (incFaceNormal.dot(refFaceNormal) > 0.0f)
+    incFaceNormal = -incFaceNormal;
 
-    float refDist = (refFaceAxisIdx == 0 ? refExt.x : (refFaceAxisIdx == 1 ? refExt.y : refExt.z));
-    Vector3 refFaceCenter = refPose.position + refFaceNormal * refDist;
+  Vector3 incUAxis, incVAxis;
+  float incHalfU = 0.0f, incHalfV = 0.0f;
+  getBoxFaceTangents(incFaceAxisIdx, incAxes, incExt, incUAxis, incVAxis,
+                     incHalfU, incHalfV);
+  Vector3 incU = incUAxis * incHalfU;
+  Vector3 incV = incVAxis * incHalfV;
+  float incDist =
+      (incFaceAxisIdx == 0 ? incExt.x
+                           : (incFaceAxisIdx == 1 ? incExt.y : incExt.z));
+  Vector3 incFaceCenter = incPose.position + incFaceNormal * incDist;
 
-    BoxCandidate candidates[8];
-    uint32_t candidateCount = 0;
-    for (uint32_t i = 0; i < polyCount && candidateCount < 8; ++i) {
-        float depth = (refFaceCenter - poly1[i].point).dot(refFaceNormal);
-        if (depth >= -0.005f) {
-            Vector3 delta = poly1[i].point - refFaceCenter;
-            candidates[candidateCount++] = {
-                poly1[i].point,
-                std::max(0.0f, depth),
-                delta.dot(refU),
-                delta.dot(refV)
-            };
-        }
+  ClipVertex poly1[8];
+  ClipVertex poly2[8];
+  poly1[0].point = incFaceCenter + incU + incV;
+  poly1[1].point = incFaceCenter - incU + incV;
+  poly1[2].point = incFaceCenter - incU - incV;
+  poly1[3].point = incFaceCenter + incU - incV;
+  uint32_t polyCount = 4;
+
+  Vector3 refU, refV;
+  float refHalfU = 0.0f, refHalfV = 0.0f;
+  getBoxFaceTangents(refFaceAxisIdx, refAxes, refExt, refU, refV, refHalfU,
+                     refHalfV);
+
+  Vector3 sidePlanes[4][2] = {{refPose.position + refU * refHalfU, refU},
+                              {refPose.position - refU * refHalfU, -refU},
+                              {refPose.position + refV * refHalfV, refV},
+                              {refPose.position - refV * refHalfV, -refV}};
+
+  for (int i = 0; i < 4; ++i) {
+    polyCount = clipPolygonWithPlane(poly1, polyCount, sidePlanes[i][0],
+                                     sidePlanes[i][1], poly2);
+    for (uint32_t k = 0; k < polyCount; ++k)
+      poly1[k] = poly2[k];
+  }
+
+  float refDist =
+      (refFaceAxisIdx == 0 ? refExt.x
+                           : (refFaceAxisIdx == 1 ? refExt.y : refExt.z));
+  Vector3 refFaceCenter = refPose.position + refFaceNormal * refDist;
+
+  BoxCandidate candidates[8];
+  uint32_t candidateCount = 0;
+  for (uint32_t i = 0; i < polyCount && candidateCount < 8; ++i) {
+    float depth = (refFaceCenter - poly1[i].point).dot(refFaceNormal);
+    if (depth >= -0.005f) {
+      Vector3 delta = poly1[i].point - refFaceCenter;
+      candidates[candidateCount++] = {poly1[i].point, std::max(0.0f, depth),
+                                      delta.dot(refU), delta.dot(refV)};
     }
+  }
 
-    selectQuadrantContacts(candidates, candidateCount, transformA, transformB, outManifold);
+  selectQuadrantContacts(candidates, candidateCount, transformA, transformB,
+                         outManifold);
 }
 
 } // namespace
 
-bool NarrowPhase::testBoxBox(const BoxShape& boxA, const Pose& transformA,
-                             const BoxShape& boxB, const Pose& transformB,
-                             ContactManifold& outManifold) {
-    Vector3 axesA[3] = {
-        transformA.orientation * Vector3(1, 0, 0),
-        transformA.orientation * Vector3(0, 1, 0),
-        transformA.orientation * Vector3(0, 0, 1)
-    };
-    Vector3 axesB[3] = {
-        transformB.orientation * Vector3(1, 0, 0),
-        transformB.orientation * Vector3(0, 1, 0),
-        transformB.orientation * Vector3(0, 0, 1)
-    };
-    Vector3 extA = boxA.halfExtents;
-    Vector3 extB = boxB.halfExtents;
-    Vector3 D = transformA.position - transformB.position; // Points B to A
+bool NarrowPhase::testBoxBox(const BoxShape &boxA, const Pose &transformA,
+                             const BoxShape &boxB, const Pose &transformB,
+                             ContactManifold &outManifold) {
+  Vector3 axesA[3] = {transformA.orientation * Vector3(1, 0, 0),
+                      transformA.orientation * Vector3(0, 1, 0),
+                      transformA.orientation * Vector3(0, 0, 1)};
+  Vector3 axesB[3] = {transformB.orientation * Vector3(1, 0, 0),
+                      transformB.orientation * Vector3(0, 1, 0),
+                      transformB.orientation * Vector3(0, 0, 1)};
+  Vector3 extA = boxA.halfExtents;
+  Vector3 extB = boxB.halfExtents;
+  Vector3 D = transformA.position - transformB.position; // Points B to A
 
-    float minPenetration = 1e30f;
-    Vector3 bestAxis(0, 0, 0);
-    int bestAxisIndex = -1;
+  float minPenetration = 1e30f;
+  Vector3 bestAxis(0, 0, 0);
+  int bestAxisIndex = -1;
 
-    auto testAxis = [&](const Vector3& rawAxis, int axisId, float bias = 1.0f) -> bool {
-        float lenSq = rawAxis.lengthSquare();
-        if (lenSq < 1e-6f) return true;
-        Vector3 L = rawAxis * (1.0f / std::sqrt(lenSq));
-        if (L.dot(D) < 0.0f) L = -L;
+  auto testAxis = [&](const Vector3 &rawAxis, int axisId,
+                      float bias = 1.0f) -> bool {
+    float lenSq = rawAxis.lengthSquare();
+    if (lenSq < 1e-6f)
+      return true;
+    Vector3 L = rawAxis * (1.0f / std::sqrt(lenSq));
+    if (L.dot(D) < 0.0f)
+      L = -L;
 
-        float rA = extA.x * std::abs(axesA[0].dot(L)) +
-                   extA.y * std::abs(axesA[1].dot(L)) +
-                   extA.z * std::abs(axesA[2].dot(L));
-        float rB = extB.x * std::abs(axesB[0].dot(L)) +
-                   extB.y * std::abs(axesB[1].dot(L)) +
-                   extB.z * std::abs(axesB[2].dot(L));
-        float s = std::abs(D.dot(L));
-        float pen = (rA + rB) - s;
-        if (pen <= 0.0f) return false;
+    float rA = extA.x * std::abs(axesA[0].dot(L)) +
+               extA.y * std::abs(axesA[1].dot(L)) +
+               extA.z * std::abs(axesA[2].dot(L));
+    float rB = extB.x * std::abs(axesB[0].dot(L)) +
+               extB.y * std::abs(axesB[1].dot(L)) +
+               extB.z * std::abs(axesB[2].dot(L));
+    float s = std::abs(D.dot(L));
+    float pen = (rA + rB) - s;
+    if (pen <= 0.0f)
+      return false;
 
-        if (pen * bias < minPenetration) {
-            minPenetration = pen * bias;
-            bestAxis = L;
-            bestAxisIndex = axisId;
-        }
-        return true;
-    };
-
-    // 1. Face testleri: A kutusunun yüzeyleri
-    for (int i = 0; i < 3; ++i) {
-        if (!testAxis(axesA[i], i)) return false;
+    if (pen * bias < minPenetration) {
+      minPenetration = pen * bias;
+      bestAxis = L;
+      bestAxisIndex = axisId;
     }
-    // 2. Face testleri: B kutusunun yüzeyleri
-    for (int i = 0; i < 3; ++i) {
-        if (!testAxis(axesB[i], 3 + i)) return false;
-    }
-    // 3. Kenar-Kenar testleri: A x B
-    int edgeIdx = 6;
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            Vector3 edgeAxis = axesA[i].cross(axesB[j]);
-            if (!testAxis(edgeAxis, edgeIdx++, 1.02f)) return false;
-        }
-    }
-
-    outManifold.normal = bestAxis;
-    outManifold.penetration = minPenetration;
-
-    // Yüzey teması: Sutherland-Hodgman yüzey kırpma
-    if (bestAxisIndex < 6) {
-        clipBoxBoxFaces(boxA, transformA, boxB, transformB, axesA, axesB, bestAxis, bestAxisIndex, outManifold);
-    }
-
-    if (outManifold.contactCount == 0) {
-        ContactPoint cp;
-        Vector3 pA = NarrowPhase::getSupportPoint(CollisionShape(boxA), transformA, -bestAxis);
-        Vector3 pB = NarrowPhase::getSupportPoint(CollisionShape(boxB), transformB, bestAxis);
-        cp.worldPosition = (pA + pB) * 0.5f;
-        cp.penetration = minPenetration;
-        cp.localPointA = transformA.orientation.getConjugate() * (cp.worldPosition - transformA.position);
-        cp.localPointB = transformB.orientation.getConjugate() * (cp.worldPosition - transformB.position);
-        cp.normalImpulse = 0.0f;
-        cp.tangentImpulse1 = 0.0f;
-        cp.tangentImpulse2 = 0.0f;
-        cp.splitImpulse = 0.0f;
-        outManifold.addContact(cp);
-    }
-
-    outManifold.computeTangents();
     return true;
+  };
+
+  // 1. Face testleri: A kutusunun yüzeyleri
+  for (int i = 0; i < 3; ++i) {
+    if (!testAxis(axesA[i], i))
+      return false;
+  }
+  // 2. Face testleri: B kutusunun yüzeyleri
+  for (int i = 0; i < 3; ++i) {
+    if (!testAxis(axesB[i], 3 + i))
+      return false;
+  }
+  // 3. Kenar-Kenar testleri: A x B
+  int edgeIdx = 6;
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      Vector3 edgeAxis = axesA[i].cross(axesB[j]);
+      if (!testAxis(edgeAxis, edgeIdx++, 1.02f))
+        return false;
+    }
+  }
+
+  outManifold.normal = bestAxis;
+  outManifold.penetration = minPenetration;
+
+  // Yüzey teması: Sutherland-Hodgman yüzey kırpma
+  if (bestAxisIndex < 6) {
+    clipBoxBoxFaces(boxA, transformA, boxB, transformB, axesA, axesB, bestAxis,
+                    bestAxisIndex, outManifold);
+  }
+
+  if (outManifold.contactCount == 0) {
+    ContactPoint cp;
+    Vector3 pA = NarrowPhase::getSupportPoint(CollisionShape(boxA), transformA,
+                                              -bestAxis);
+    Vector3 pB = NarrowPhase::getSupportPoint(CollisionShape(boxB), transformB,
+                                              bestAxis);
+    cp.worldPosition = (pA + pB) * 0.5f;
+    cp.penetration = minPenetration;
+    cp.localPointA = transformA.orientation.getConjugate() *
+                     (cp.worldPosition - transformA.position);
+    cp.localPointB = transformB.orientation.getConjugate() *
+                     (cp.worldPosition - transformB.position);
+    cp.normalImpulse = 0.0f;
+    cp.tangentImpulse1 = 0.0f;
+    cp.tangentImpulse2 = 0.0f;
+    cp.splitImpulse = 0.0f;
+    outManifold.addContact(cp);
+  }
+
+  outManifold.computeTangents();
+  return true;
 }
 
 /**
@@ -1204,7 +1280,9 @@ bool NarrowPhase::handleSimplex(Simplex &simplex, Vector3 &direction) {
     Vector3 ab = b - a, ao = a * -1.0f;
     Vector3 cross = ab.cross(ao);
     if (cross.lengthSquare() < 1e-8f) {
-      Vector3 perp = (std::abs(ab.x) < 0.85f * ab.length()) ? Vector3(1.0f, 0.0f, 0.0f) : Vector3(0.0f, 1.0f, 0.0f);
+      Vector3 perp = (std::abs(ab.x) < 0.85f * ab.length())
+                         ? Vector3(1.0f, 0.0f, 0.0f)
+                         : Vector3(0.0f, 1.0f, 0.0f);
       direction = ab.cross(perp);
       if (direction.lengthSquare() < 1e-8f) {
         direction = Vector3(0.0f, 0.0f, 1.0f);
@@ -1271,26 +1349,30 @@ bool NarrowPhase::handleSimplex(Simplex &simplex, Vector3 &direction) {
 namespace {
 
 static void buildInitialEpaVertices(const Simplex &simplex,
-                                    const CollisionShape &shapeA, const Pose &transformA,
-                                    const CollisionShape &shapeB, const Pose &transformB,
+                                    const CollisionShape &shapeA,
+                                    const Pose &transformA,
+                                    const CollisionShape &shapeB,
+                                    const Pose &transformB,
                                     std::vector<EPAVertex> &vertices) {
   static const Vector3 fallbackAxes[6] = {
-      Vector3(1.0f, 0.0f, 0.0f),  Vector3(-1.0f, 0.0f, 0.0f),
-      Vector3(0.0f, 1.0f, 0.0f),  Vector3(0.0f, -1.0f, 0.0f),
-      Vector3(0.0f, 0.0f, 1.0f),  Vector3(0.0f, 0.0f, -1.0f)
-  };
+      Vector3(1.0f, 0.0f, 0.0f), Vector3(-1.0f, 0.0f, 0.0f),
+      Vector3(0.0f, 1.0f, 0.0f), Vector3(0.0f, -1.0f, 0.0f),
+      Vector3(0.0f, 0.0f, 1.0f), Vector3(0.0f, 0.0f, -1.0f)};
 
   for (int i = 0; i < simplex.size(); ++i) {
     Vector3 p = simplex[i];
-    vertices.push_back({p, NarrowPhase::getSupportPoint(shapeA, transformA, p),
-                           NarrowPhase::getSupportPoint(shapeB, transformB, p * -1.0f)});
+    vertices.push_back(
+        {p, NarrowPhase::getSupportPoint(shapeA, transformA, p),
+         NarrowPhase::getSupportPoint(shapeB, transformB, p * -1.0f)});
   }
 
   if (simplex.size() < 4) {
     for (const auto &axis : fallbackAxes) {
-      if (vertices.size() >= 4) break;
+      if (vertices.size() >= 4)
+        break;
       Vector3 pA = NarrowPhase::getSupportPoint(shapeA, transformA, axis);
-      Vector3 pB = NarrowPhase::getSupportPoint(shapeB, transformB, axis * -1.0f);
+      Vector3 pB =
+          NarrowPhase::getSupportPoint(shapeB, transformB, axis * -1.0f);
       Vector3 p = pA - pB;
       bool distinct = true;
       for (const auto &v : vertices) {
@@ -1304,14 +1386,16 @@ static void buildInitialEpaVertices(const Simplex &simplex,
       }
     }
     while (vertices.size() < 4) {
-      Vector3 base = vertices.empty() ? Vector3(0.0f, 0.0f, 0.0f) : vertices[0].minkowskiPoint;
+      Vector3 base = vertices.empty() ? Vector3(0.0f, 0.0f, 0.0f)
+                                      : vertices[0].minkowskiPoint;
       Vector3 p = base + fallbackAxes[vertices.size()] * 0.01f;
       vertices.push_back({p, p, Vector3(0.0f, 0.0f, 0.0f)});
     }
   }
 }
 
-static EPAFace makeEpaFace(const std::vector<EPAVertex> &vertices, size_t i1, size_t i2, size_t i3) {
+static EPAFace makeEpaFace(const std::vector<EPAVertex> &vertices, size_t i1,
+                           size_t i2, size_t i3) {
   Vector3 v1 = vertices[i1].minkowskiPoint, v2 = vertices[i2].minkowskiPoint,
           v3 = vertices[i3].minkowskiPoint;
   Vector3 cross = (v2 - v1).cross(v3 - v1);
@@ -1338,14 +1422,15 @@ static EPAFace makeEpaFace(const std::vector<EPAVertex> &vertices, size_t i1, si
   return EPAFace{i1, i2, i3, n, d};
 }
 
-static EPAFace expandEpaPolytope(const CollisionShape &shapeA, const Pose &transformA,
-                                const CollisionShape &shapeB, const Pose &transformB,
-                                std::vector<EPAVertex> &vertices,
-                                std::vector<EPAFace> &faces,
-                                std::vector<std::pair<size_t, size_t>> &edges) {
+static EPAFace
+expandEpaPolytope(const CollisionShape &shapeA, const Pose &transformA,
+                  const CollisionShape &shapeB, const Pose &transformB,
+                  std::vector<EPAVertex> &vertices, std::vector<EPAFace> &faces,
+                  std::vector<std::pair<size_t, size_t>> &edges) {
   EPAFace closestFace{0, 1, 2, Vector3(0.0f, 1.0f, 0.0f), 0.0f};
   for (int iter = 0; iter < 32; ++iter) {
-    if (faces.empty()) break;
+    if (faces.empty())
+      break;
 
     float minDistance = 1e10f;
     size_t closestFaceIndex = 0;
@@ -1361,7 +1446,8 @@ static EPAFace expandEpaPolytope(const CollisionShape &shapeA, const Pose &trans
       searchDir = Vector3(0.0f, 1.0f, 0.0f);
 
     Vector3 pA = NarrowPhase::getSupportPoint(shapeA, transformA, searchDir);
-    Vector3 pB = NarrowPhase::getSupportPoint(shapeB, transformB, searchDir * -1.0f);
+    Vector3 pB =
+        NarrowPhase::getSupportPoint(shapeB, transformB, searchDir * -1.0f);
     Vector3 p = pA - pB;
 
     if (p.dot(searchDir) - closestFace.distance < 0.001f)
@@ -1391,17 +1477,22 @@ static EPAFace expandEpaPolytope(const CollisionShape &shapeA, const Pose &trans
       }
     }
 
-    if (edges.empty()) break;
+    if (edges.empty())
+      break;
 
     for (auto &edge : edges)
       faces.push_back(makeEpaFace(vertices, edge.first, edge.second, newVIdx));
+    if (faces.size() > 256 || vertices.size() > 256)
+      break; // EPA koruması
   }
   return closestFace;
 }
 
 static CollisionInfo computeEpaContactInfo(const EPAFace &closestFace,
-                                          const CollisionShape &shapeA, const Pose &transformA,
-                                          const CollisionShape &shapeB, const Pose &transformB) {
+                                           const CollisionShape &shapeA,
+                                           const Pose &transformA,
+                                           const CollisionShape &shapeB,
+                                           const Pose &transformB) {
   CollisionInfo info;
   info.hasCollision = true;
   info.normal = closestFace.normal;
@@ -1427,7 +1518,8 @@ static CollisionInfo computeEpaContactInfo(const EPAFace &closestFace,
                     ")");
 
   Vector3 pA = NarrowPhase::getSupportPoint(shapeA, transformA, info.normal);
-  Vector3 pB = NarrowPhase::getSupportPoint(shapeB, transformB, info.normal * -1.0f);
+  Vector3 pB =
+      NarrowPhase::getSupportPoint(shapeB, transformB, info.normal * -1.0f);
 
   bool isBoxA = std::holds_alternative<BoxShape>(shapeA.getVariant());
   bool isBoxB = std::holds_alternative<BoxShape>(shapeB.getVariant());
@@ -1481,17 +1573,19 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
   if (edges.capacity() < 96)
     edges.reserve(96);
 
-  buildInitialEpaVertices(simplex, shapeA, transformA, shapeB, transformB, vertices);
+  buildInitialEpaVertices(simplex, shapeA, transformA, shapeB, transformB,
+                          vertices);
 
   faces.push_back(makeEpaFace(vertices, 0, 1, 2));
   faces.push_back(makeEpaFace(vertices, 0, 2, 3));
   faces.push_back(makeEpaFace(vertices, 0, 3, 1));
   faces.push_back(makeEpaFace(vertices, 1, 3, 2));
 
-  EPAFace closestFace = expandEpaPolytope(shapeA, transformA, shapeB, transformB,
-                                          vertices, faces, edges);
+  EPAFace closestFace = expandEpaPolytope(shapeA, transformA, shapeB,
+                                          transformB, vertices, faces, edges);
 
-  return computeEpaContactInfo(closestFace, shapeA, transformA, shapeB, transformB);
+  return computeEpaContactInfo(closestFace, shapeA, transformA, shapeB,
+                               transformB);
 }
 
 } // namespace Baryon::collision
