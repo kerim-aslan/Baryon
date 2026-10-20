@@ -120,6 +120,16 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 			I[0].x = ix;
 			I[1].y = iy;
 			I[2].z = ix;
+		} else if constexpr (std::is_same_v<T, collision::CylinderShape>) {
+			float r = s.radius;
+			float h = s.getHeight();
+			float ixz = (1.0f / 12.0f) * 1.0f * (3.0f * r * r + h * h);
+			float iy = 0.5f * 1.0f * r * r;
+			if (ixz < 1e-4f) ixz = 1.0f;
+			if (iy < 1e-4f) iy = 1.0f;
+			I[0].x = ixz;
+			I[1].y = iy;
+			I[2].z = ixz;
 		} else if constexpr (std::is_same_v<T, collision::CompoundShape>) {
 			I = s.computeInertiaTensor(1.0f);
 		} else {

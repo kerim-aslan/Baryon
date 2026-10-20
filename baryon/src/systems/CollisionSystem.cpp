@@ -388,6 +388,8 @@ void CollisionSystem::processConvexCollision(
     bool isHullB = std::holds_alternative<collision::ConvexHullShape>(collB.shape.getVariant());
     bool isCapsuleA = std::holds_alternative<collision::CapsuleShape>(collA.shape.getVariant());
     bool isCapsuleB = std::holds_alternative<collision::CapsuleShape>(collB.shape.getVariant());
+    bool isCylinderA = std::holds_alternative<collision::CylinderShape>(collA.shape.getVariant());
+    bool isCylinderB = std::holds_alternative<collision::CylinderShape>(collB.shape.getVariant());
 
     if (isHullA) {
       const auto &hullA = std::get<collision::ConvexHullShape>(collA.shape.getVariant());
@@ -499,6 +501,92 @@ void CollisionSystem::processConvexCollision(
             faceCp.splitImpulse = 0.0f;
             it->second.addContact(faceCp);
           }
+        }
+      }
+    } else if (isCylinderA) {
+      const auto &cylA = std::get<collision::CylinderShape>(collA.shape.getVariant());
+      Vector3 axisA = transA.orientation * Vector3(0, 1, 0);
+      float axisDot = axisA.dot(it->second.normal);
+      if (std::abs(axisDot) < 0.25f) {
+        Vector3 localDir = transA.orientation.getConjugate() * (-it->second.normal);
+        Vector3 radialDir(localDir.x, 0.0f, localDir.z);
+        if (radialDir.lengthSquare() > 1e-6f) radialDir.normalize(); else radialDir = Vector3(1, 0, 0);
+        Vector3 v = radialDir * cylA.radius;
+        collision::ContactPoint faceCp;
+        faceCp.worldPosition = transA.position + (transA.orientation * v);
+        faceCp.localPointA = v;
+        faceCp.localPointB = transB.orientation.getConjugate() *
+                            (faceCp.worldPosition - transB.position);
+        faceCp.penetration = info.penetration;
+        faceCp.normalImpulse = 0.0f;
+        faceCp.tangentImpulse1 = 0.0f;
+        faceCp.tangentImpulse2 = 0.0f;
+        faceCp.splitImpulse = 0.0f;
+        it->second.addContact(faceCp);
+      } else if (std::abs(axisDot) > 0.85f) {
+        float capSign = (axisA.dot(-it->second.normal) > 0.0f) ? 1.0f : -1.0f;
+        float capY = capSign * cylA.halfHeight;
+        std::array<Vector3, 4> capPts = {
+            Vector3(cylA.radius, capY, 0.0f),
+            Vector3(-cylA.radius, capY, 0.0f),
+            Vector3(0.0f, capY, cylA.radius),
+            Vector3(0.0f, capY, -cylA.radius)
+        };
+        for (const auto &v : capPts) {
+          collision::ContactPoint faceCp;
+          faceCp.worldPosition = transA.position + (transA.orientation * v);
+          faceCp.localPointA = v;
+          faceCp.localPointB = transB.orientation.getConjugate() *
+                              (faceCp.worldPosition - transB.position);
+          faceCp.penetration = info.penetration;
+          faceCp.normalImpulse = 0.0f;
+          faceCp.tangentImpulse1 = 0.0f;
+          faceCp.tangentImpulse2 = 0.0f;
+          faceCp.splitImpulse = 0.0f;
+          it->second.addContact(faceCp);
+        }
+      }
+    } else if (isCylinderB) {
+      const auto &cylB = std::get<collision::CylinderShape>(collB.shape.getVariant());
+      Vector3 axisB = transB.orientation * Vector3(0, 1, 0);
+      float axisDot = axisB.dot(it->second.normal);
+      if (std::abs(axisDot) < 0.25f) {
+        Vector3 localDir = transB.orientation.getConjugate() * (it->second.normal);
+        Vector3 radialDir(localDir.x, 0.0f, localDir.z);
+        if (radialDir.lengthSquare() > 1e-6f) radialDir.normalize(); else radialDir = Vector3(1, 0, 0);
+        Vector3 v = radialDir * cylB.radius;
+        collision::ContactPoint faceCp;
+        faceCp.worldPosition = transB.position + (transB.orientation * v);
+        faceCp.localPointA = transA.orientation.getConjugate() *
+                            (faceCp.worldPosition - transA.position);
+        faceCp.localPointB = v;
+        faceCp.penetration = info.penetration;
+        faceCp.normalImpulse = 0.0f;
+        faceCp.tangentImpulse1 = 0.0f;
+        faceCp.tangentImpulse2 = 0.0f;
+        faceCp.splitImpulse = 0.0f;
+        it->second.addContact(faceCp);
+      } else if (std::abs(axisDot) > 0.85f) {
+        float capSign = (axisB.dot(it->second.normal) > 0.0f) ? 1.0f : -1.0f;
+        float capY = capSign * cylB.halfHeight;
+        std::array<Vector3, 4> capPts = {
+            Vector3(cylB.radius, capY, 0.0f),
+            Vector3(-cylB.radius, capY, 0.0f),
+            Vector3(0.0f, capY, cylB.radius),
+            Vector3(0.0f, capY, -cylB.radius)
+        };
+        for (const auto &v : capPts) {
+          collision::ContactPoint faceCp;
+          faceCp.worldPosition = transB.position + (transB.orientation * v);
+          faceCp.localPointA = transA.orientation.getConjugate() *
+                              (faceCp.worldPosition - transA.position);
+          faceCp.localPointB = v;
+          faceCp.penetration = info.penetration;
+          faceCp.normalImpulse = 0.0f;
+          faceCp.tangentImpulse1 = 0.0f;
+          faceCp.tangentImpulse2 = 0.0f;
+          faceCp.splitImpulse = 0.0f;
+          it->second.addContact(faceCp);
         }
       }
     }

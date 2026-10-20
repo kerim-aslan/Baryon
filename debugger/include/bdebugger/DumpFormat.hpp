@@ -72,6 +72,7 @@ enum class ShapeKind : uint8_t {
     Sphere = 1,
     Capsule = 2,
     StaticMesh = 3,
+    Cylinder = 4,
     Unknown = 255
 };
 

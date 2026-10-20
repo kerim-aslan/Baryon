@@ -535,6 +535,19 @@ Vector3 NarrowPhase::getSupportPoint(const CollisionShape &shape,
                                 : Vector3(1.0f, 0.0f, 0.0f);
           Vector3 localResult = point + (normDir * arg.radius);
           return transform.position + (transform.orientation * localResult);
+        } else if constexpr (std::is_same_v<T, CylinderShape>) {
+          Quaternion invRot = transform.orientation.getConjugate();
+          Vector3 localDir = invRot * direction;
+          float y = (localDir.y >= 0.0f) ? arg.halfHeight : -arg.halfHeight;
+          float r_xz = std::sqrt(localDir.x * localDir.x + localDir.z * localDir.z);
+          float x = 0.0f;
+          float z = 0.0f;
+          if (r_xz > 1e-12f) {
+            x = arg.radius * (localDir.x / r_xz);
+            z = arg.radius * (localDir.z / r_xz);
+          }
+          Vector3 localResult(x, y, z);
+          return transform.position + (transform.orientation * localResult);
         } else if constexpr (std::is_same_v<T, ConvexHullShape>) {
           if (arg.vertices.empty())
             return transform.position;
@@ -718,6 +731,70 @@ static bool raycastCapsule(const CapsuleShape &s, const Pose &transform,
   return false;
 }
 
+static bool raycastCylinder(const CylinderShape &s, const Pose &transform,
+                            const Ray &ray, RaycastHit &hit) {
+  Vector3 p = transform.getInverse() * ray.origin;
+  Vector3 d = transform.orientation.getInverse() * ray.direction;
+  float halfH = s.halfHeight;
+  float radius = s.radius;
+
+  float closestT = ray.maxDistance + 1.0f;
+  Vector3 localHitNorm(0, 1, 0);
+  bool hitAny = false;
+
+  // 1. Yan kavisli yuzey: x^2 + z^2 = radius^2, y in [-halfH, halfH]
+  float a = d.x * d.x + d.z * d.z;
+  float b = p.x * d.x + p.z * d.z;
+  float c = p.x * p.x + p.z * p.z - radius * radius;
+  if (a > 1e-7f) {
+    float discr = b * b - a * c;
+    if (discr >= 0.0f) {
+      float sqrtD = std::sqrt(discr);
+      float t0 = (-b - sqrtD) / a;
+      float t1 = (-b + sqrtD) / a;
+      for (float tCandidate : {t0, t1}) {
+        if (tCandidate > 0.0f && tCandidate <= ray.maxDistance) {
+          float yAtHit = p.y + d.y * tCandidate;
+          if (yAtHit >= -halfH && yAtHit <= halfH) {
+            if (tCandidate < closestT) {
+              closestT = tCandidate;
+              localHitNorm =
+                  Vector3(p.x + d.x * tCandidate, 0.0f, p.z + d.z * tCandidate)
+                      .getNormalized();
+              hitAny = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Ust ve alt duz kapaklar: y = +halfH (+Y normali) ve y = -halfH (-Y normali)
+  if (std::abs(d.y) > 1e-7f) {
+    for (float capY : {halfH, -halfH}) {
+      float tCap = (capY - p.y) / d.y;
+      if (tCap > 0.0f && tCap <= ray.maxDistance && tCap < closestT) {
+        float xAtHit = p.x + d.x * tCap;
+        float zAtHit = p.z + d.z * tCap;
+        if (xAtHit * xAtHit + zAtHit * zAtHit <= radius * radius) {
+          closestT = tCap;
+          localHitNorm = Vector3(0.0f, (capY > 0.0f ? 1.0f : -1.0f), 0.0f);
+          hitAny = true;
+        }
+      }
+    }
+  }
+
+  if (hitAny && closestT <= ray.maxDistance) {
+    hit.hasHit = true;
+    hit.distance = closestT;
+    hit.position = ray.origin + ray.direction * closestT;
+    hit.normal = (transform.orientation * localHitNorm).getNormalized();
+    return true;
+  }
+  return false;
+}
+
 static bool raycastTriangle(const TriangleShape &s, const Pose &transform,
                             const Ray &ray, RaycastHit &hit) {
   Vector3 v0 = transform.position + (transform.orientation * s.v0);
@@ -819,6 +896,8 @@ bool NarrowPhase::raycast(const CollisionShape &shape, const Pose &transform,
           return raycastBox(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, CapsuleShape>) {
           return raycastCapsule(s, transform, ray, hit);
+        } else if constexpr (std::is_same_v<T, CylinderShape>) {
+          return raycastCylinder(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, TriangleShape>) {
           return raycastTriangle(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, StaticMeshShape>) {

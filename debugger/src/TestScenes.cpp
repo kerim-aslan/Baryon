@@ -368,6 +368,16 @@ void TestScenes::setupRollingResistance(Simulator& sim) {
     s2.setMaterial(0.6f, 0.0f);
     s2.setLinearVelocity(Vector3(8.0f, 0.0f, 0.0f));
     s2.setAngularVelocity(Vector3(0.0f, 0.0f, -13.3f));
+
+    // Silindir C: Yuvarlanan silindir (Z = 0.0)
+    Quaternion cylRot(Vector3(1.0f, 0.0f, 0.0f), 3.14159265f * 0.5f);
+    Pose cylPose(Vector3(-15.0f, 0.6f, 0.0f), cylRot);
+    Body c1 = sim.createBody(cylPose, collision::CollisionShape{collision::CylinderShape(0.6f, 0.8f)});
+    c1.setBodyType(Core::BodyType::Dynamic);
+    c1.setMass(1.5f);
+    c1.setMaterial(0.01f, 0.0f);
+    c1.setLinearVelocity(Vector3(8.0f, 0.0f, 0.0f));
+    c1.setAngularVelocity(Vector3(0.0f, 0.0f, -13.3f));
 }
 
 void TestScenes::setupRaycastShowcase(Simulator& sim) {
@@ -405,6 +415,11 @@ void TestScenes::setupRaycastShowcase(Simulator& sim) {
     Pose meshPose(Vector3(6.0f, 1.0f, 0.0f));
     Body meshBody = sim.createBody(meshPose, collision::CollisionShape{collision::StaticMeshShape(meshObj)});
     meshBody.setBodyType(Core::BodyType::Static);
+
+    // 5. Silindir Sekli (X = 10)
+    Pose cylTargetPose(Vector3(10.0f, 2.0f, 0.0f));
+    Body cylTarget = sim.createBody(cylTargetPose, collision::CollisionShape{collision::CylinderShape(0.7f, 1.5f)});
+    cylTarget.setBodyType(Core::BodyType::Static);
 }
 
 void TestScenes::setupCompoundShapes(Simulator& sim) {

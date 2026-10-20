@@ -86,6 +86,27 @@ struct CapsuleShape {
 };
 
 /**
+ * @struct CylinderShape
+ * @brief Silindir çarpışma geometrisi.
+ * @details Yarıçap ve yerel Y ekseni boyunca yarım yükseklik (halfHeight) ile tanımlanır.
+ *          Düz dairesel taban ve tavan kapaklarına sahiptir.
+ */
+struct CylinderShape {
+    float radius;     ///< Silindirin yarıçapı (metre).
+    float halfHeight; ///< Y ekseni boyunca yarım yükseklik (metre, tam yükseklik h = 2 * halfHeight).
+
+    /**
+     * @brief Silindir oluşturur.
+     * @param r Yarıçap.
+     * @param hh Yarım yükseklik.
+     */
+    constexpr CylinderShape(float r, float hh) : radius(r), halfHeight(hh) {}
+
+    /** @brief Tam yüksekliği döndürür (h = 2 * halfHeight). */
+    [[nodiscard]] constexpr float getHeight() const { return halfHeight * 2.0f; }
+};
+
+/**
  * @struct ConvexHullShape
  * @brief Dışbükey örtü (convex hull) çarpışma geometrisi.
  * @details Bir nokta bulutu (vertex dizisi) ile tanımlanan dışbükey hacimdir.
@@ -256,7 +277,7 @@ struct CompoundShape {
 /**
  * @brief Desteklenen tüm çarpışma şekillerini içeren variant tipi.
  */
-using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, ConvexHullShape, TriangleShape, StaticMeshShape, CompoundShape>;
+using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, CylinderShape, ConvexHullShape, TriangleShape, StaticMeshShape, CompoundShape>;
 
 /**
  * @class CollisionShape
@@ -293,6 +314,9 @@ public:
             } else if constexpr (std::is_same_v<T, CapsuleShape>) {
                 Vector3 r(shape.radius, shape.radius + (shape.height * 0.5f), shape.radius);
                 return AABB(-r, r);
+            } else if constexpr (std::is_same_v<T, CylinderShape>) {
+                return AABB(Vector3(-shape.radius, -shape.halfHeight, -shape.radius), 
+                            Vector3(shape.radius, shape.halfHeight, shape.radius));
             } else if constexpr (std::is_same_v<T, ConvexHullShape>) {
                 if (shape.vertices.empty()) return AABB(Vector3(0,0,0), Vector3(0,0,0));
                 Vector3 minB = shape.vertices[0], maxB = shape.vertices[0];
@@ -362,6 +386,10 @@ inline Vector3 CompoundShape::computeCenterOfMass() const {
                 float r = s.radius;
                 float h = s.height;
                 return 3.14159265f * r * r * h + (4.0f / 3.0f) * 3.14159265f * r * r * r;
+            } else if constexpr (std::is_same_v<ST, CylinderShape>) {
+                float r = s.radius;
+                float h = s.getHeight();
+                return 3.14159265f * r * r * h;
             } else {
                 return 1.0f;
             }
@@ -400,6 +428,10 @@ inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
                 float r = s.radius;
                 float h = s.height;
                 return 3.14159265f * r * r * h + (4.0f / 3.0f) * 3.14159265f * r * r * r;
+            } else if constexpr (std::is_same_v<ST, CylinderShape>) {
+                float r = s.radius;
+                float h = s.getHeight();
+                return 3.14159265f * r * r * h;
             } else {
                 return 1.0f;
             }
@@ -439,6 +471,12 @@ inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
                            capMass * ((2.0f / 5.0f) * r * r + (3.0f / 8.0f) * h * r + (1.0f / 4.0f) * h * h);
                 float iy = (1.0f / 2.0f) * cylMass * r * r + (2.0f / 5.0f) * capMass * r * r;
                 I_local[0].x = ix; I_local[1].y = iy; I_local[2].z = ix;
+            } else if constexpr (std::is_same_v<ST, CylinderShape>) {
+                float r = s.radius;
+                float h = s.getHeight();
+                float ixz = (1.0f / 12.0f) * m_i * (3.0f * r * r + h * h);
+                float iy = 0.5f * m_i * r * r;
+                I_local[0].x = ixz; I_local[1].y = iy; I_local[2].z = ixz;
             } else {
                 I_local[0].x = 1.0f / 6.0f * m_i;
                 I_local[1].y = 1.0f / 6.0f * m_i;

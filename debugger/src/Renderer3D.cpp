@@ -321,6 +321,33 @@ void Renderer3D::drawWireCapsule(const Pose& pose, float radius, float height, c
     addLine(pose * Vector3(0, -halfH,  radius), pose * Vector3(0, halfH,  radius), color);
 }
 
+void Renderer3D::drawWireCylinder(const Pose& pose, float radius, float height, const Vector3& color, int segments) {
+    float halfH = height * 0.5f;
+
+    // Ust ve alt dairesel kapaklar (XZ duzlemi)
+    for (int i = 0; i < segments; ++i) {
+        float a0 = (i / static_cast<float>(segments)) * 6.2831853f;
+        float a1 = ((i + 1) / static_cast<float>(segments)) * 6.2831853f;
+        float c0 = std::cos(a0) * radius;
+        float s0 = std::sin(a0) * radius;
+        float c1 = std::cos(a1) * radius;
+        float s1 = std::sin(a1) * radius;
+
+        // Ust kapak
+        addLine(pose * Vector3(c0, halfH, s0), pose * Vector3(c1, halfH, s1), color);
+        // Alt kapak
+        addLine(pose * Vector3(c0, -halfH, s0), pose * Vector3(c1, -halfH, s1), color);
+    }
+
+    // Yan birlestirme cizgileri (4 ana dikey hat)
+    for (int i = 0; i < 4; ++i) {
+        float a = (i * 0.5f) * 3.14159265f;
+        float cx = std::cos(a) * radius;
+        float cz = std::sin(a) * radius;
+        addLine(pose * Vector3(cx, -halfH, cz), pose * Vector3(cx, halfH, cz), color);
+    }
+}
+
 void Renderer3D::drawWireMesh(const Pose& pose, const Vector3& color) {
     // 3D Piramit Temsili Tel Kafes (Pyramid wireframe)
     Vector3 v0 = pose * Vector3(-1.0f, 0.0f, -1.0f);

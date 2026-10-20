@@ -210,6 +210,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RaycastAllTest.cpp")
     add_test(NAME RaycastAllTest COMMAND RaycastAllTest)
 endif()
 
+# Cylinder Shape Test (Faz 2.1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CylinderShapeTest.cpp")
+    add_executable(CylinderShapeTest tests/CylinderShapeTest.cpp)
+    target_link_libraries(CylinderShapeTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME CylinderShapeTest COMMAND CylinderShapeTest)
+endif()
+
 # Headless Physics Harness Library & Executable (Faz 0.1)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
     add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)
