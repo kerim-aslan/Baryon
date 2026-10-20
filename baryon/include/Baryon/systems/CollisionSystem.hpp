@@ -63,6 +63,12 @@ private:
                               bool isMeshB,
                               const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
 
+    void processHeightfieldCollision(ecs::Entity entityA, ecs::Entity entityB,
+                                     const Pose& transA, const Pose& transB,
+                                     const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+                                     bool isHfB,
+                                     const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
+
     void processBoxBoxCollision(ecs::Entity entityA, ecs::Entity entityB,
                                 const Pose& transA, const Pose& transB,
                                 const ecs::ColliderData& collA, const ecs::ColliderData& collB,

@@ -246,6 +246,165 @@ struct StaticMeshShape {
     explicit StaticMeshShape(std::shared_ptr<StaticMesh> m) : mesh(std::move(m)) {}
 };
 
+/**
+ * @class HeightfieldShape
+ * @brief Düzenli ızgara (heightfield/terrain) arazi çarpışma geometrisi.
+ * @details X ve Z eksenlerinde düzenli aralıklarla yerleşen yükseklik (Y) örneklerinden oluşur.
+ *          Geniş faz için tek bir AABB üretirken, dar fazda sadece hedef AABB ile kesişen
+ *          ızgara hücrelerinin üçgenlerini O(1) indeks aralığı hesaplayarak hızlıca sorgular.
+ */
+class HeightfieldShape {
+private:
+    int32_t mWidthSamples{2};   ///< X eksenindeki örnek nokta sayısı (nx >= 2).
+    int32_t mLengthSamples{2};  ///< Z eksenindeki örnek nokta sayısı (nz >= 2).
+    float mCellSize{1.0f};      ///< Her bir hücrenin genişliği ve uzunluğu (dx = dz > 0).
+    std::vector<float> mHeights;///< Yükseklik verileri (row-major: z * nx + x).
+    AABB mBounds;               ///< Yerel sınırlayıcı kutu.
+    bool mCentered{true};       ///< Orijinin ızgara merkezinde olup olmadığı.
+
+    void recomputeBounds() {
+        if (mHeights.empty()) {
+            mBounds = AABB(Vector3(-1.0f, -1.0f, -1.0f), Vector3(1.0f, 1.0f, 1.0f));
+            return;
+        }
+        float minH = 1e10f;
+        float maxH = -1e10f;
+        for (float h : mHeights) {
+            if (!std::isnan(h) && !std::isinf(h)) {
+                if (h < minH) minH = h;
+                if (h > maxH) maxH = h;
+            }
+        }
+        if (minH > maxH) {
+            minH = 0.0f;
+            maxH = 0.0f;
+        }
+
+        float totalW = static_cast<float>(mWidthSamples - 1) * mCellSize;
+        float totalL = static_cast<float>(mLengthSamples - 1) * mCellSize;
+
+        Vector3 minB, maxB;
+        if (mCentered) {
+            float halfW = totalW * 0.5f;
+            float halfL = totalL * 0.5f;
+            minB = Vector3(-halfW, minH, -halfL);
+            maxB = Vector3(halfW, maxH, halfL);
+        } else {
+            minB = Vector3(0.0f, minH, 0.0f);
+            maxB = Vector3(totalW, maxH, totalL);
+        }
+        mBounds = AABB(minB, maxB);
+    }
+
+public:
+    HeightfieldShape() = default;
+
+    /**
+     * @brief Düzenli ızgara arazi geometrisi oluşturur.
+     * @param nx X eksenindeki örnek nokta sayısı (nx >= 2).
+     * @param nz Z eksenindeki örnek nokta sayısı (nz >= 2).
+     * @param cellSize Hücre boyutu (metre cinsinden > 0).
+     * @param heights Yükseklik dizisi (en az nx * nz eleman).
+     * @param centered Orijinin arazinin yatay merkezinde olup olmadığı (varsayılan true).
+     */
+    HeightfieldShape(int32_t nx, int32_t nz, float cellSize, std::vector<float> heights, bool centered = true)
+        : mWidthSamples(std::max(2, nx)),
+          mLengthSamples(std::max(2, nz)),
+          mCellSize(cellSize > 1e-4f ? cellSize : 1.0f),
+          mHeights(std::move(heights)),
+          mCentered(centered) {
+        
+        size_t requiredSize = static_cast<size_t>(mWidthSamples) * static_cast<size_t>(mLengthSamples);
+        if (mHeights.size() < requiredSize) {
+            mHeights.resize(requiredSize, 0.0f);
+        }
+        for (auto& h : mHeights) {
+            if (std::isnan(h) || std::isinf(h)) {
+                h = 0.0f;
+            }
+        }
+        recomputeBounds();
+    }
+
+    [[nodiscard]] int32_t getWidthSamples() const noexcept { return mWidthSamples; }
+    [[nodiscard]] int32_t getLengthSamples() const noexcept { return mLengthSamples; }
+    [[nodiscard]] float getCellSize() const noexcept { return mCellSize; }
+    [[nodiscard]] const std::vector<float>& getHeights() const noexcept { return mHeights; }
+    [[nodiscard]] const AABB& getBounds() const noexcept { return mBounds; }
+    [[nodiscard]] bool isCentered() const noexcept { return mCentered; }
+
+    [[nodiscard]] float getHeight(int32_t x, int32_t z) const {
+        if (x < 0) x = 0;
+        if (x >= mWidthSamples) x = mWidthSamples - 1;
+        if (z < 0) z = 0;
+        if (z >= mLengthSamples) z = mLengthSamples - 1;
+        return mHeights[static_cast<size_t>(z) * static_cast<size_t>(mWidthSamples) + static_cast<size_t>(x)];
+    }
+
+    [[nodiscard]] Vector3 getVertex(int32_t x, int32_t z) const {
+        float h = getHeight(x, z);
+        float totalW = static_cast<float>(mWidthSamples - 1) * mCellSize;
+        float totalL = static_cast<float>(mLengthSamples - 1) * mCellSize;
+        float vx = static_cast<float>(x) * mCellSize;
+        float vz = static_cast<float>(z) * mCellSize;
+        if (mCentered) {
+            vx -= totalW * 0.5f;
+            vz -= totalL * 0.5f;
+        }
+        return Vector3(vx, h, vz);
+    }
+
+    /**
+     * @brief Hedef AABB ile kesişen ızgara hücrelerinin üçgenlerini O(1) hücre aralığı ile bulup çağırır.
+     * @tparam F Callback fonksiyonu (void(const TriangleShape&)).
+     */
+    template <typename F>
+    void queryTriangles(const AABB& targetAABB, F&& callback) const {
+        if (!mBounds.testCollision(targetAABB))
+            return;
+
+        float totalW = static_cast<float>(mWidthSamples - 1) * mCellSize;
+        float totalL = static_cast<float>(mLengthSamples - 1) * mCellSize;
+        float offsetX = mCentered ? (totalW * 0.5f) : 0.0f;
+        float offsetZ = mCentered ? (totalL * 0.5f) : 0.0f;
+
+        float minGridX = (targetAABB.minBounds.x + offsetX) / mCellSize;
+        float maxGridX = (targetAABB.maxBounds.x + offsetX) / mCellSize;
+        float minGridZ = (targetAABB.minBounds.z + offsetZ) / mCellSize;
+        float maxGridZ = (targetAABB.maxBounds.z + offsetZ) / mCellSize;
+
+        int32_t i0 = std::clamp(static_cast<int32_t>(std::floor(minGridX)), 0, mWidthSamples - 2);
+        int32_t i1 = std::clamp(static_cast<int32_t>(std::floor(maxGridX)), 0, mWidthSamples - 2);
+        int32_t j0 = std::clamp(static_cast<int32_t>(std::floor(minGridZ)), 0, mLengthSamples - 2);
+        int32_t j1 = std::clamp(static_cast<int32_t>(std::floor(maxGridZ)), 0, mLengthSamples - 2);
+
+        for (int32_t j = j0; j <= j1; ++j) {
+            for (int32_t i = i0; i <= i1; ++i) {
+                Vector3 p00 = getVertex(i, j);
+                Vector3 p10 = getVertex(i + 1, j);
+                Vector3 p01 = getVertex(i, j + 1);
+                Vector3 p11 = getVertex(i + 1, j + 1);
+
+                // Tri 1: (p00, p01, p11) - normal yukari (+Y)
+                TriangleShape tri1(p00, p01, p11);
+                Vector3 t1Min(std::min({p00.x, p01.x, p11.x}), std::min({p00.y, p01.y, p11.y}), std::min({p00.z, p01.z, p11.z}));
+                Vector3 t1Max(std::max({p00.x, p01.x, p11.x}), std::max({p00.y, p01.y, p11.y}), std::max({p00.z, p01.z, p11.z}));
+                if (targetAABB.testCollision(AABB(t1Min, t1Max))) {
+                    callback(tri1);
+                }
+
+                // Tri 2: (p00, p11, p10) - normal yukari (+Y)
+                TriangleShape tri2(p00, p11, p10);
+                Vector3 t2Min(std::min({p00.x, p11.x, p10.x}), std::min({p00.y, p11.y, p10.y}), std::min({p00.z, p11.z, p10.z}));
+                Vector3 t2Max(std::max({p00.x, p11.x, p10.x}), std::max({p00.y, p11.y, p10.y}), std::max({p00.z, p11.z, p10.z}));
+                if (targetAABB.testCollision(AABB(t2Min, t2Max))) {
+                    callback(tri2);
+                }
+            }
+        }
+    }
+};
+
 class CollisionShape;
 
 /**
@@ -302,7 +461,7 @@ struct CompoundShape {
 /**
  * @brief Desteklenen tüm çarpışma şekillerini içeren variant tipi.
  */
-using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, CylinderShape, ConeShape, ConvexHullShape, TriangleShape, StaticMeshShape, CompoundShape>;
+using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, CylinderShape, ConeShape, ConvexHullShape, TriangleShape, StaticMeshShape, HeightfieldShape, CompoundShape>;
 
 /**
  * @class CollisionShape
@@ -360,6 +519,9 @@ public:
             } 
             else if constexpr (std::is_same_v<T, StaticMeshShape>) {
                 return shape.mesh ? shape.mesh->getBounds() : AABB(Vector3(0,0,0), Vector3(0,0,0));
+            }
+            else if constexpr (std::is_same_v<T, HeightfieldShape>) {
+                return shape.getBounds();
             }
             else if constexpr (std::is_same_v<T, CompoundShape>) {
                 if (shape.children.empty()) return AABB(Vector3(0,0,0), Vector3(0,0,0));
@@ -422,6 +584,8 @@ inline Vector3 CompoundShape::computeCenterOfMass() const {
                 float r = s.radius;
                 float h = s.height;
                 return (1.0f / 3.0f) * 3.14159265f * r * r * h;
+            } else if constexpr (std::is_same_v<ST, HeightfieldShape>) {
+                return 0.0f;
             } else {
                 return 1.0f;
             }
@@ -468,6 +632,8 @@ inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
                 float r = s.radius;
                 float h = s.height;
                 return (1.0f / 3.0f) * 3.14159265f * r * r * h;
+            } else if constexpr (std::is_same_v<ST, HeightfieldShape>) {
+                return 0.0f;
             } else {
                 return 1.0f;
             }
@@ -519,6 +685,8 @@ inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
                 float ixz = (3.0f / 20.0f) * m_i * (r * r + 0.25f * h * h);
                 float iy = 0.3f * m_i * r * r;
                 I_local[0].x = ixz; I_local[1].y = iy; I_local[2].z = ixz;
+            } else if constexpr (std::is_same_v<ST, HeightfieldShape>) {
+                I_local = Matrix3x3::identity();
             } else {
                 I_local[0].x = 1.0f / 6.0f * m_i;
                 I_local[1].y = 1.0f / 6.0f * m_i;

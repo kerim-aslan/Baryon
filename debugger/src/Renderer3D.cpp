@@ -375,6 +375,27 @@ void Renderer3D::drawWireCone(const Pose& pose, float radius, float height, cons
     }
 }
 
+void Renderer3D::drawWireHeightfield(const Pose& pose, float cellSize, int widthSamples, int lengthSamples, const Vector3& color) {
+    int nx = std::max(2, widthSamples);
+    int nz = std::max(2, lengthSamples);
+    float totalW = static_cast<float>(nx - 1) * cellSize;
+    float totalL = static_cast<float>(nz - 1) * cellSize;
+    float halfW = totalW * 0.5f;
+    float halfL = totalL * 0.5f;
+
+    int stepX = std::max(1, nx / 32);
+    int stepZ = std::max(1, nz / 32);
+
+    for (int j = 0; j < nz; j += stepZ) {
+        float z = static_cast<float>(j) * cellSize - halfL;
+        addLine(pose * Vector3(-halfW, 0.0f, z), pose * Vector3(halfW, 0.0f, z), color);
+    }
+    for (int i = 0; i < nx; i += stepX) {
+        float x = static_cast<float>(i) * cellSize - halfW;
+        addLine(pose * Vector3(x, 0.0f, -halfL), pose * Vector3(x, 0.0f, halfL), color);
+    }
+}
+
 void Renderer3D::drawWireMesh(const Pose& pose, const Vector3& color) {
     // 3D Piramit Temsili Tel Kafes (Pyramid wireframe)
     Vector3 v0 = pose * Vector3(-1.0f, 0.0f, -1.0f);

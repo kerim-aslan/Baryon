@@ -276,6 +276,8 @@ void DebuggerApp::render3DView() {
                     mRenderer.drawWireCylinder(pose, e.shapeDimX, e.shapeDimY, color);
                 } else if (e.shapeKind == ShapeKind::Cone) {
                     mRenderer.drawWireCone(pose, e.shapeDimX, e.shapeDimY, color);
+                } else if (e.shapeKind == ShapeKind::Heightfield) {
+                    mRenderer.drawWireHeightfield(pose, e.shapeDimX, static_cast<int>(e.shapeDimY), static_cast<int>(e.shapeDimZ), color);
                 } else if (e.shapeKind == ShapeKind::StaticMesh) {
                     mRenderer.drawWireMesh(pose, color);
                 }

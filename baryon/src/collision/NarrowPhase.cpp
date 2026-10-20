@@ -983,6 +983,58 @@ static bool raycastStaticMesh(const StaticMeshShape &s, const Pose &transform,
   return false;
 }
 
+static bool raycastHeightfield(const HeightfieldShape &hf, const Pose &transform,
+                               const Ray &ray, RaycastHit &hit) {
+  Quaternion invRot = transform.orientation.getConjugate();
+  Vector3 localOrigin = invRot * (ray.origin - transform.position);
+  Vector3 localDir = invRot * ray.direction;
+  Ray localRay(localOrigin, localDir, ray.maxDistance);
+  AABB localRayAABB = localRay.computeAABB();
+
+  if (!hf.getBounds().testCollision(localRayAABB))
+    return false;
+
+  bool hitAny = false;
+  float closestT = ray.maxDistance;
+  Vector3 bestLocalNorm(0, 1, 0);
+
+  hf.queryTriangles(localRayAABB, [&](const TriangleShape &tri) {
+    Vector3 edge1 = tri.v1 - tri.v0;
+    Vector3 edge2 = tri.v2 - tri.v0;
+    Vector3 h = localDir.cross(edge2);
+    float a = edge1.dot(h);
+    if (std::abs(a) < 1e-7f)
+      return;
+    float f = 1.0f / a;
+    Vector3 sVec = localOrigin - tri.v0;
+    float u = f * sVec.dot(h);
+    if (u < 0.0f || u > 1.0f)
+      return;
+    Vector3 q = sVec.cross(edge1);
+    float v = f * localDir.dot(q);
+    if (v < 0.0f || u + v > 1.0f)
+      return;
+    float t = f * edge2.dot(q);
+    if (t > 1e-4f && t < closestT) {
+      closestT = t;
+      Vector3 n = edge1.cross(edge2).getNormalized();
+      if (n.dot(localDir) > 0.0f)
+        n = -n;
+      bestLocalNorm = n;
+      hitAny = true;
+    }
+  });
+
+  if (hitAny) {
+    hit.hasHit = true;
+    hit.distance = closestT;
+    hit.position = ray.origin + ray.direction * closestT;
+    hit.normal = transform.orientation * bestLocalNorm;
+    return true;
+  }
+  return false;
+}
+
 } // namespace
 
 /**
@@ -1009,6 +1061,8 @@ bool NarrowPhase::raycast(const CollisionShape &shape, const Pose &transform,
           return raycastTriangle(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, StaticMeshShape>) {
           return raycastStaticMesh(s, transform, ray, hit);
+        } else if constexpr (std::is_same_v<T, HeightfieldShape>) {
+          return raycastHeightfield(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, CompoundShape>) {
           bool hitAny = false;
           float closestDist = 1e10f;
@@ -1872,7 +1926,78 @@ bool NarrowPhase::testOverlap(const CollisionShape &shapeA, const Pose &poseA,
     return false;
   }
 
-  // 3. Specialized Fast Narrowphase Tests
+  // 3. StaticMesh and Heightfield handling
+  if (std::holds_alternative<HeightfieldShape>(shapeA.getVariant())) {
+    const auto &hfA = std::get<HeightfieldShape>(shapeA.getVariant());
+    Quaternion invRot = poseA.orientation.getConjugate();
+    Vector3 localPos = invRot * (poseB.position - poseA.position);
+    AABB queryAABB = transformAabb(shapeB.computeLocalAABB(), Pose(localPos, invRot * poseB.orientation));
+    bool foundOverlap = false;
+    hfA.queryTriangles(queryAABB, [&](const TriangleShape &tri) {
+      if (foundOverlap) return;
+      CollisionShape triWrapper(tri);
+      Simplex simplex;
+      if (GJK(triWrapper, poseA, shapeB, poseB, simplex)) {
+        foundOverlap = true;
+      }
+    });
+    return foundOverlap;
+  }
+
+  if (std::holds_alternative<HeightfieldShape>(shapeB.getVariant())) {
+    const auto &hfB = std::get<HeightfieldShape>(shapeB.getVariant());
+    Quaternion invRot = poseB.orientation.getConjugate();
+    Vector3 localPos = invRot * (poseA.position - poseB.position);
+    AABB queryAABB = transformAabb(shapeA.computeLocalAABB(), Pose(localPos, invRot * poseA.orientation));
+    bool foundOverlap = false;
+    hfB.queryTriangles(queryAABB, [&](const TriangleShape &tri) {
+      if (foundOverlap) return;
+      CollisionShape triWrapper(tri);
+      Simplex simplex;
+      if (GJK(shapeA, poseA, triWrapper, poseB, simplex)) {
+        foundOverlap = true;
+      }
+    });
+    return foundOverlap;
+  }
+
+  if (std::holds_alternative<StaticMeshShape>(shapeA.getVariant())) {
+    const auto &smA = std::get<StaticMeshShape>(shapeA.getVariant());
+    if (!smA.mesh) return false;
+    Quaternion invRot = poseA.orientation.getConjugate();
+    Vector3 localPos = invRot * (poseB.position - poseA.position);
+    AABB queryAABB = transformAabb(shapeB.computeLocalAABB(), Pose(localPos, invRot * poseB.orientation));
+    bool foundOverlap = false;
+    smA.mesh->queryTriangles(queryAABB, [&](const TriangleShape &tri) {
+      if (foundOverlap) return;
+      CollisionShape triWrapper(tri);
+      Simplex simplex;
+      if (GJK(triWrapper, poseA, shapeB, poseB, simplex)) {
+        foundOverlap = true;
+      }
+    });
+    return foundOverlap;
+  }
+
+  if (std::holds_alternative<StaticMeshShape>(shapeB.getVariant())) {
+    const auto &smB = std::get<StaticMeshShape>(shapeB.getVariant());
+    if (!smB.mesh) return false;
+    Quaternion invRot = poseB.orientation.getConjugate();
+    Vector3 localPos = invRot * (poseA.position - poseB.position);
+    AABB queryAABB = transformAabb(shapeA.computeLocalAABB(), Pose(localPos, invRot * poseA.orientation));
+    bool foundOverlap = false;
+    smB.mesh->queryTriangles(queryAABB, [&](const TriangleShape &tri) {
+      if (foundOverlap) return;
+      CollisionShape triWrapper(tri);
+      Simplex simplex;
+      if (GJK(shapeA, poseA, triWrapper, poseB, simplex)) {
+        foundOverlap = true;
+      }
+    });
+    return foundOverlap;
+  }
+
+  // 4. Specialized Fast Narrowphase Tests
   bool isSphereA = std::holds_alternative<SphereShape>(shapeA.getVariant());
   bool isSphereB = std::holds_alternative<SphereShape>(shapeB.getVariant());
   bool isBoxA = std::holds_alternative<BoxShape>(shapeA.getVariant());

@@ -112,6 +112,11 @@ const DumpFrame& DumpRecorder::captureStep(const Simulator& sim, float dt) {
                                 childRec.shapeDimY = s.height;
                             } else if constexpr (std::is_same_v<T, collision::StaticMeshShape>) {
                                 childRec.shapeKind = ShapeKind::StaticMesh;
+                            } else if constexpr (std::is_same_v<T, collision::HeightfieldShape>) {
+                                childRec.shapeKind = ShapeKind::Heightfield;
+                                childRec.shapeDimX = s.getCellSize();
+                                childRec.shapeDimY = static_cast<float>(s.getWidthSamples());
+                                childRec.shapeDimZ = static_cast<float>(s.getLengthSamples());
                             } else {
                                 childRec.shapeKind = ShapeKind::Unknown;
                             }
@@ -146,6 +151,11 @@ const DumpFrame& DumpRecorder::captureStep(const Simulator& sim, float dt) {
                         rec.shapeDimY = s.height;
                     } else if constexpr (std::is_same_v<T, collision::StaticMeshShape>) {
                         rec.shapeKind = ShapeKind::StaticMesh;
+                    } else if constexpr (std::is_same_v<T, collision::HeightfieldShape>) {
+                        rec.shapeKind = ShapeKind::Heightfield;
+                        rec.shapeDimX = s.getCellSize();
+                        rec.shapeDimY = static_cast<float>(s.getWidthSamples());
+                        rec.shapeDimZ = static_cast<float>(s.getLengthSamples());
                     } else {
                         rec.shapeKind = ShapeKind::Unknown;
                     }

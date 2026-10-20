@@ -298,6 +298,165 @@ void CollisionSystem::processBoxBoxCollision(
   }
 }
 
+void CollisionSystem::processHeightfieldCollision(
+    ecs::Entity entityA, ecs::Entity entityB,
+    const Pose &transA, const Pose &transB,
+    const ecs::ColliderData &collA, const ecs::ColliderData &collB,
+    bool isHfB,
+    const std::unordered_map<uint64_t, collision::ContactManifold> &oldManifoldMap) {
+  auto entHf = isHfB ? entityB : entityA;
+  auto entConv = isHfB ? entityA : entityB;
+  const auto &transHf = isHfB ? transB : transA;
+  const auto &transConv = isHfB ? transA : transB;
+  const auto &collHf = isHfB ? collB : collA;
+  const auto &collConv = isHfB ? collA : collB;
+
+  const auto &hfShape = std::get<collision::HeightfieldShape>(collHf.shape.getVariant());
+
+  collision::AABB localConvAABB = collConv.shape.computeLocalAABB();
+  float convRadius = (localConvAABB.maxBounds - localConvAABB.minBounds).length() * 0.5f;
+  float queryExtent = std::max(physics::PhysicsConstants::DefaultMeshQueryExtent, convRadius + 1.0f);
+  Vector3 localPos = transHf.orientation.getConjugate() * (transConv.position - transHf.position);
+  collision::AABB queryAABB(
+      localPos - Vector3(queryExtent, queryExtent, queryExtent),
+      localPos + Vector3(queryExtent, queryExtent, queryExtent));
+
+  hfShape.queryTriangles(
+      queryAABB, [&](const collision::TriangleShape &tri) {
+        collision::CollisionShape triShapeWrapper(tri);
+        collision::Simplex simplex;
+
+        if (collision::NarrowPhase::GJK(collConv.shape, transConv,
+                                        triShapeWrapper, transHf,
+                                        simplex)) {
+          collision::CollisionInfo info = collision::NarrowPhase::EPA(
+              simplex, collConv.shape, transConv, triShapeWrapper,
+              transHf);
+
+          if (info.hasCollision && info.penetration > 1e-4f) {
+            bool awakeConv = mRegistry.hasComponent<Core::BodyState>(entConv) && !mRegistry.getComponent<Core::BodyState>(entConv).isSleeping;
+            bool awakeHf = mRegistry.hasComponent<Core::BodyState>(entHf) && !mRegistry.getComponent<Core::BodyState>(entHf).isSleeping;
+            if ((awakeConv && !awakeHf) || (awakeHf && !awakeConv) ||
+                info.penetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
+              wakeIfSleeping(entConv);
+              wakeIfSleeping(entHf);
+            }
+
+            uint64_t key = makeEntityPairKey(entConv, entHf);
+
+            auto [it, inserted] = mManifoldMap.try_emplace(key, entConv, entHf);
+            it->second.isTriggerPair = collConv.isTrigger || collHf.isTrigger;
+            Vector3 currentNormal = -info.normal; // Normal sozlesmesi: B'den A'ya (Hf'den conv'e)
+
+            // Ghost-collision filtresi: Uçgen yüzey normali ile yumuşatma
+            Vector3 triEdge1 = tri.v1 - tri.v0;
+            Vector3 triEdge2 = tri.v2 - tri.v0;
+            Vector3 triFaceNorm = transHf.orientation * (triEdge1.cross(triEdge2)).getNormalized();
+            if (currentNormal.dot(triFaceNorm) > 0.65f) {
+              currentNormal = triFaceNorm;
+            }
+
+            if (inserted || info.penetration > it->second.penetration + 1e-4f || it->second.contactCount == 0) {
+              it->second.contactCount = 0;
+              it->second.normal = currentNormal;
+              it->second.penetration = info.penetration;
+              it->second.computeTangents();
+            } else if (it->second.normal.dot(currentNormal) < physics::PhysicsConstants::ManifoldNormalAlignmentThreshold) {
+              return;
+            }
+
+            bool isMeshBox = std::holds_alternative<collision::BoxShape>(collConv.shape.getVariant());
+            bool isMeshCap = std::holds_alternative<collision::CapsuleShape>(collConv.shape.getVariant());
+
+            if (isMeshBox) {
+              const auto &box = std::get<collision::BoxShape>(collConv.shape.getVariant());
+              Vector3 h = box.halfExtents;
+              std::array<Vector3, 8> localVerts = {
+                  Vector3(-h.x, -h.y, -h.z), Vector3(h.x, -h.y, -h.z),
+                  Vector3(h.x,  h.y, -h.z), Vector3(-h.x,  h.y, -h.z),
+                  Vector3(-h.x, -h.y,  h.z), Vector3(h.x,  h.y,  h.z),
+                  Vector3(h.x,  h.y,  h.z), Vector3(-h.x,  h.y,  h.z)
+              };
+              Vector3 searchDir = -currentNormal;
+              float maxProj = -physics::PhysicsConstants::Infinity;
+              for (const auto &v : localVerts) {
+                Vector3 wP = transConv.position + (transConv.orientation * v);
+                float p = wP.dot(searchDir);
+                if (p > maxProj) maxProj = p;
+              }
+              for (const auto &v : localVerts) {
+                Vector3 wP = transConv.position + (transConv.orientation * v);
+                if (wP.dot(searchDir) >= maxProj - 0.005f && it->second.contactCount < 4) {
+                  collision::ContactPoint faceCp;
+                  faceCp.worldPosition = wP;
+                  faceCp.localPointA = v;
+                  faceCp.localPointB = transHf.orientation.getConjugate() * (faceCp.worldPosition - transHf.position);
+                  faceCp.penetration = info.penetration;
+                  faceCp.normalImpulse = 0.0f;
+                  faceCp.tangentImpulse1 = 0.0f;
+                  faceCp.tangentImpulse2 = 0.0f;
+                  faceCp.splitImpulse = 0.0f;
+                  it->second.addContact(faceCp);
+                }
+              }
+            } else if (isMeshCap) {
+              const auto &cap = std::get<collision::CapsuleShape>(collConv.shape.getVariant());
+              Vector3 axisConv = transConv.orientation * Vector3(0, 1, 0);
+              if (std::abs(axisConv.dot(currentNormal)) < 0.25f) {
+                Vector3 localDir = transConv.orientation.getConjugate() * (-currentNormal);
+                Vector3 radialDir(localDir.x, 0.0f, localDir.z);
+                if (radialDir.lengthSquare() > 1e-6f) radialDir.normalize(); else radialDir = Vector3(1, 0, 0);
+                float halfH = cap.height * 0.5f;
+                std::array<Vector3, 2> capPts = {
+                    Vector3(0, halfH, 0) + radialDir * cap.radius,
+                    Vector3(0, -halfH, 0) + radialDir * cap.radius
+                };
+                Vector3 searchDir = -currentNormal;
+                Vector3 p0 = transConv.position + (transConv.orientation * capPts[0]);
+                Vector3 p1 = transConv.position + (transConv.orientation * capPts[1]);
+                if (std::abs(p0.dot(searchDir) - p1.dot(searchDir)) <= 0.005f) {
+                  for (const auto &v : capPts) {
+                    collision::ContactPoint faceCp;
+                    faceCp.worldPosition = transConv.position + (transConv.orientation * v);
+                    faceCp.localPointA = v;
+                    faceCp.localPointB = transHf.orientation.getConjugate() * (faceCp.worldPosition - transHf.position);
+                    faceCp.penetration = info.penetration;
+                    faceCp.normalImpulse = 0.0f;
+                    faceCp.tangentImpulse1 = 0.0f;
+                    faceCp.tangentImpulse2 = 0.0f;
+                    faceCp.splitImpulse = 0.0f;
+                    it->second.addContact(faceCp);
+                  }
+                }
+              }
+            }
+
+            if (it->second.contactCount == 0) {
+              collision::ContactPoint cp;
+              cp.worldPosition = info.contactPoint;
+              cp.localPointA = transConv.orientation.getConjugate() * (cp.worldPosition - transConv.position);
+              cp.localPointB = transHf.orientation.getConjugate() * (cp.worldPosition - transHf.position);
+              cp.penetration = info.penetration;
+              cp.normalImpulse = 0.0f;
+              cp.tangentImpulse1 = 0.0f;
+              cp.tangentImpulse2 = 0.0f;
+              cp.splitImpulse = 0.0f;
+
+              if (it->second.contactCount < 4)
+                it->second.addContact(cp);
+              else
+                it->second.contacts[3] = cp;
+            }
+
+            auto oldIt = oldManifoldMap.find(key);
+            if (oldIt != oldManifoldMap.end()) {
+              it->second.inheritImpulses(oldIt->second, physics::PhysicsConstants::ContactPointMatchRadiusSq);
+            }
+          }
+        }
+      });
+}
+
 void CollisionSystem::processConvexCollision(
     ecs::Entity entityA, ecs::Entity entityB,
     const Pose &transA, const Pose &transB,
@@ -930,8 +1089,12 @@ void CollisionSystem::step() {
         collA.shape.getVariant());
     bool isMeshB = std::holds_alternative<collision::StaticMeshShape>(
         collB.shape.getVariant());
+    bool isHfA = std::holds_alternative<collision::HeightfieldShape>(
+        collA.shape.getVariant());
+    bool isHfB = std::holds_alternative<collision::HeightfieldShape>(
+        collB.shape.getVariant());
 
-    if (isMeshA && isMeshB)
+    if ((isMeshA || isHfA) && (isMeshB || isHfB))
       continue;
 
     bool isCompA = std::holds_alternative<collision::CompoundShape>(collA.shape.getVariant());
@@ -941,6 +1104,8 @@ void CollisionSystem::step() {
       processCompoundCollision(entityA, entityB, transA, transB, collA, collB, oldManifoldMap);
     } else if (isMeshA || isMeshB) {
       processMeshCollision(entityA, entityB, transA, transB, collA, collB, isMeshB, oldManifoldMap);
+    } else if (isHfA || isHfB) {
+      processHeightfieldCollision(entityA, entityB, transA, transB, collA, collB, isHfB, oldManifoldMap);
     } else {
       bool isBoxA = std::holds_alternative<collision::BoxShape>(collA.shape.getVariant());
       bool isBoxB = std::holds_alternative<collision::BoxShape>(collB.shape.getVariant());
@@ -1085,6 +1250,8 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
 
     bool isMesh = std::holds_alternative<collision::StaticMeshShape>(
         obsColl.shape.getVariant());
+    bool isHf = std::holds_alternative<collision::HeightfieldShape>(
+        obsColl.shape.getVariant());
 
     auto checkShapeTOI = [&](const collision::CollisionShape &shapeB) {
       float currentTime = 0.0f;
@@ -1174,6 +1341,26 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
               checkShapeTOI(triShapeWrapper);
             });
       }
+    } else if (isHf) {
+      const auto &hfShape =
+          std::get<collision::HeightfieldShape>(obsColl.shape.getVariant());
+      Vector3 localStart = obsTrans.orientation.getConjugate() *
+                           (transform.position - obsTrans.position);
+      Vector3 localEnd = obsTrans.orientation.getConjugate() *
+                         (transform.position + deltaPos - obsTrans.position);
+      Vector3 minP(std::min(localStart.x, localEnd.x) - radiusA,
+                   std::min(localStart.y, localEnd.y) - radiusA,
+                   std::min(localStart.z, localEnd.z) - radiusA);
+      Vector3 maxP(std::max(localStart.x, localEnd.x) + radiusA,
+                   std::max(localStart.y, localEnd.y) + radiusA,
+                   std::max(localStart.z, localEnd.z) + radiusA);
+      collision::AABB hfQueryAABB(minP, maxP);
+
+      hfShape.queryTriangles(
+          hfQueryAABB, [&](const collision::TriangleShape &tri) {
+            collision::CollisionShape triShapeWrapper(tri);
+            checkShapeTOI(triShapeWrapper);
+          });
     } else {
       checkShapeTOI(obsColl.shape);
     }
