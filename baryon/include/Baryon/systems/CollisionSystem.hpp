@@ -73,6 +73,11 @@ private:
                                 const ecs::ColliderData& collA, const ecs::ColliderData& collB,
                                 const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
 
+    void processCompoundCollision(ecs::Entity entityA, ecs::Entity entityB,
+                                  const Pose& transA, const Pose& transB,
+                                  const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+                                  const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
+
 public:
     /**
      * @brief Çarpışma sistemini başlatır.

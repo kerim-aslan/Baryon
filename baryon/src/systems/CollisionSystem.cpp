@@ -514,6 +514,227 @@ void CollisionSystem::processConvexCollision(
   }
 }
 
+namespace {
+inline collision::AABB transformAabb(const collision::AABB& local, const Pose& pose) {
+    Vector3 minB = local.minBounds;
+    Vector3 maxB = local.maxBounds;
+    Vector3 corners[8] = {
+        Vector3(minB.x, minB.y, minB.z), Vector3(maxB.x, minB.y, minB.z),
+        Vector3(minB.x, maxB.y, minB.z), Vector3(maxB.x, maxB.y, minB.z),
+        Vector3(minB.x, minB.y, maxB.z), Vector3(maxB.x, minB.y, maxB.z),
+        Vector3(minB.x, maxB.y, maxB.z), Vector3(maxB.x, maxB.y, maxB.z)
+    };
+    Vector3 outMin(1e10f, 1e10f, 1e10f);
+    Vector3 outMax(-1e10f, -1e10f, -1e10f);
+    for (const auto& c : corners) {
+        Vector3 wc = pose.position + (pose.orientation * c);
+        outMin.x = std::min(outMin.x, wc.x);
+        outMin.y = std::min(outMin.y, wc.y);
+        outMin.z = std::min(outMin.z, wc.z);
+        outMax.x = std::max(outMax.x, wc.x);
+        outMax.y = std::max(outMax.y, wc.y);
+        outMax.z = std::max(outMax.z, wc.z);
+    }
+    return collision::AABB(outMin, outMax);
+}
+} // namespace
+
+void CollisionSystem::processCompoundCollision(
+    ecs::Entity entityA, ecs::Entity entityB,
+    const Pose &transA, const Pose &transB,
+    const ecs::ColliderData &collA, const ecs::ColliderData &collB,
+    const std::unordered_map<uint64_t, collision::ContactManifold> &oldManifoldMap) {
+  
+  bool isCompA = std::holds_alternative<collision::CompoundShape>(collA.shape.getVariant());
+  bool isCompB = std::holds_alternative<collision::CompoundShape>(collB.shape.getVariant());
+
+  struct SubShape {
+    const collision::CollisionShape* shape;
+    Pose worldPose;
+  };
+
+  std::vector<SubShape> subShapesA;
+  if (isCompA) {
+    const auto &compA = std::get<collision::CompoundShape>(collA.shape.getVariant());
+    subShapesA.reserve(compA.children.size());
+    for (const auto &child : compA.children) {
+      Pose wp;
+      wp.position = transA.position + (transA.orientation * child.localPose.position);
+      wp.orientation = transA.orientation * child.localPose.orientation;
+      subShapesA.push_back({&child.getShape(), wp});
+    }
+  } else {
+    subShapesA.push_back({&collA.shape, transA});
+  }
+
+  std::vector<SubShape> subShapesB;
+  if (isCompB) {
+    const auto &compB = std::get<collision::CompoundShape>(collB.shape.getVariant());
+    subShapesB.reserve(compB.children.size());
+    for (const auto &child : compB.children) {
+      Pose wp;
+      wp.position = transB.position + (transB.orientation * child.localPose.position);
+      wp.orientation = transB.orientation * child.localPose.orientation;
+      subShapesB.push_back({&child.getShape(), wp});
+    }
+  } else {
+    subShapesB.push_back({&collB.shape, transB});
+  }
+
+  if (subShapesA.empty() || subShapesB.empty())
+    return;
+
+  uint64_t key = makeEntityPairKey(entityA, entityB);
+  bool isTriggerPair = collA.isTrigger || collB.isTrigger;
+
+  std::vector<collision::ContactPoint> accumulatedContacts;
+  Vector3 avgNormal(0, 0, 0);
+  float maxPenetration = 0.0f;
+  bool hasAnyCollision = false;
+
+  for (const auto &subA : subShapesA) {
+    collision::AABB aabbA = transformAabb(subA.shape->computeLocalAABB(), subA.worldPose);
+
+    for (const auto &subB : subShapesB) {
+      collision::AABB aabbB = transformAabb(subB.shape->computeLocalAABB(), subB.worldPose);
+
+      if (!aabbA.testCollision(aabbB))
+        continue;
+
+      bool isSubBoxA = std::holds_alternative<collision::BoxShape>(subA.shape->getVariant());
+      bool isSubBoxB = std::holds_alternative<collision::BoxShape>(subB.shape->getVariant());
+      bool isSubSphereA = std::holds_alternative<collision::SphereShape>(subA.shape->getVariant());
+      bool isSubSphereB = std::holds_alternative<collision::SphereShape>(subB.shape->getVariant());
+
+      if (isSubBoxA && isSubBoxB) {
+        const auto &bA = std::get<collision::BoxShape>(subA.shape->getVariant());
+        const auto &bB = std::get<collision::BoxShape>(subB.shape->getVariant());
+        collision::ContactManifold satManifold(entityA, entityB);
+
+        if (collision::NarrowPhase::testBoxBox(bA, subA.worldPose, bB, subB.worldPose, satManifold)) {
+          hasAnyCollision = true;
+          if (satManifold.penetration > maxPenetration) {
+            maxPenetration = satManifold.penetration;
+            avgNormal = satManifold.normal;
+          }
+          for (uint32_t cIdx = 0; cIdx < satManifold.contactCount; ++cIdx) {
+            const auto &cp = satManifold.contacts[cIdx];
+            collision::ContactPoint transformedCp;
+            transformedCp.worldPosition = cp.worldPosition;
+            transformedCp.localPointA = transA.orientation.getConjugate() * (cp.worldPosition - transA.position);
+            transformedCp.localPointB = transB.orientation.getConjugate() * (cp.worldPosition - transB.position);
+            transformedCp.penetration = cp.penetration;
+            accumulatedContacts.push_back(transformedCp);
+          }
+        }
+      } else if (isSubSphereA && isSubSphereB) {
+        const auto &spA = std::get<collision::SphereShape>(subA.shape->getVariant());
+        const auto &spB = std::get<collision::SphereShape>(subB.shape->getVariant());
+        collision::CollisionInfo info;
+        if (collision::NarrowPhase::testSphereSphere(spA, subA.worldPose, spB, subB.worldPose, info)) {
+          hasAnyCollision = true;
+          if (info.penetration > maxPenetration) {
+            maxPenetration = info.penetration;
+            avgNormal = info.normal;
+          }
+          collision::ContactPoint cp;
+          cp.worldPosition = info.contactPoint;
+          cp.localPointA = transA.orientation.getConjugate() * (cp.worldPosition - transA.position);
+          cp.localPointB = transB.orientation.getConjugate() * (cp.worldPosition - transB.position);
+          cp.penetration = info.penetration;
+          accumulatedContacts.push_back(cp);
+        }
+      } else if (isSubSphereA && isSubBoxB) {
+        const auto &spA = std::get<collision::SphereShape>(subA.shape->getVariant());
+        const auto &bB = std::get<collision::BoxShape>(subB.shape->getVariant());
+        collision::CollisionInfo info;
+        if (collision::NarrowPhase::testSphereBox(spA, subA.worldPose, bB, subB.worldPose, info)) {
+          hasAnyCollision = true;
+          if (info.penetration > maxPenetration) {
+            maxPenetration = info.penetration;
+            avgNormal = info.normal;
+          }
+          collision::ContactPoint cp;
+          cp.worldPosition = info.contactPoint;
+          cp.localPointA = transA.orientation.getConjugate() * (cp.worldPosition - transA.position);
+          cp.localPointB = transB.orientation.getConjugate() * (cp.worldPosition - transB.position);
+          cp.penetration = info.penetration;
+          accumulatedContacts.push_back(cp);
+        }
+      } else if (isSubBoxA && isSubSphereB) {
+        const auto &bA = std::get<collision::BoxShape>(subA.shape->getVariant());
+        const auto &spB = std::get<collision::SphereShape>(subB.shape->getVariant());
+        collision::CollisionInfo info;
+        if (collision::NarrowPhase::testSphereBox(spB, subB.worldPose, bA, subA.worldPose, info)) {
+          hasAnyCollision = true;
+          Vector3 normalBtoA = -info.normal;
+          if (info.penetration > maxPenetration) {
+            maxPenetration = info.penetration;
+            avgNormal = normalBtoA;
+          }
+          collision::ContactPoint cp;
+          cp.worldPosition = info.contactPoint;
+          cp.localPointA = transA.orientation.getConjugate() * (cp.worldPosition - transA.position);
+          cp.localPointB = transB.orientation.getConjugate() * (cp.worldPosition - transB.position);
+          cp.penetration = info.penetration;
+          accumulatedContacts.push_back(cp);
+        }
+      } else {
+        collision::Simplex simplex;
+        if (collision::NarrowPhase::GJK(*subA.shape, subA.worldPose, *subB.shape, subB.worldPose, simplex)) {
+          collision::CollisionInfo info = collision::NarrowPhase::EPA(simplex, *subA.shape, subA.worldPose, *subB.shape, subB.worldPose);
+          if (info.hasCollision) {
+            hasAnyCollision = true;
+            Vector3 normalBtoA = -info.normal;
+            if (info.penetration > maxPenetration) {
+              maxPenetration = info.penetration;
+              avgNormal = normalBtoA;
+            }
+            collision::ContactPoint cp;
+            cp.worldPosition = info.contactPoint;
+            cp.localPointA = transA.orientation.getConjugate() * (cp.worldPosition - transA.position);
+            cp.localPointB = transB.orientation.getConjugate() * (cp.worldPosition - transB.position);
+            cp.penetration = info.penetration;
+            accumulatedContacts.push_back(cp);
+          }
+        }
+      }
+    }
+  }
+
+  if (hasAnyCollision && !accumulatedContacts.empty()) {
+    bool awakeA = mRegistry.hasComponent<Core::BodyState>(entityA) && !mRegistry.getComponent<Core::BodyState>(entityA).isSleeping;
+    bool awakeB = mRegistry.hasComponent<Core::BodyState>(entityB) && !mRegistry.getComponent<Core::BodyState>(entityB).isSleeping;
+    if ((awakeA && !awakeB) || (awakeB && !awakeA) || maxPenetration > physics::PhysicsConstants::LinearSlop * 2.0f) {
+      wakeIfSleeping(entityA);
+      wakeIfSleeping(entityB);
+    }
+
+    auto [it, inserted] = mManifoldMap.try_emplace(key, entityA, entityB);
+    it->second.isTriggerPair = isTriggerPair;
+    it->second.normal = avgNormal;
+    it->second.penetration = maxPenetration;
+    it->second.computeTangents();
+    it->second.contactCount = 0;
+
+    if (accumulatedContacts.size() > 4) {
+      std::sort(accumulatedContacts.begin(), accumulatedContacts.end(), [](const auto &a, const auto &b) {
+        return a.penetration > b.penetration;
+      });
+    }
+
+    uint32_t limit = std::min(static_cast<uint32_t>(accumulatedContacts.size()), 4u);
+    for (uint32_t c = 0; c < limit; ++c) {
+      it->second.addContact(accumulatedContacts[c]);
+    }
+
+    auto oldIt = oldManifoldMap.find(key);
+    if (oldIt != oldManifoldMap.end()) {
+      it->second.inheritImpulses(oldIt->second, physics::PhysicsConstants::ContactPointMatchRadiusSq);
+    }
+  }
+}
+
 /**
  * @brief Dar faz çarpışma testlerini gerçekleştirir ve temas verilerini
  * hazırlar.
@@ -573,7 +794,12 @@ void CollisionSystem::step() {
     if (isMeshA && isMeshB)
       continue;
 
-    if (isMeshA || isMeshB) {
+    bool isCompA = std::holds_alternative<collision::CompoundShape>(collA.shape.getVariant());
+    bool isCompB = std::holds_alternative<collision::CompoundShape>(collB.shape.getVariant());
+
+    if (isCompA || isCompB) {
+      processCompoundCollision(entityA, entityB, transA, transB, collA, collB, oldManifoldMap);
+    } else if (isMeshA || isMeshB) {
       processMeshCollision(entityA, entityB, transA, transB, collA, collB, isMeshB, oldManifoldMap);
     } else {
       bool isBoxA = std::holds_alternative<collision::BoxShape>(collA.shape.getVariant());

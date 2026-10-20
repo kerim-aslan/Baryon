@@ -10,6 +10,7 @@ namespace Baryon::Debugger {
 
 const char* TestScenes::getSceneName(SceneType type) {
     switch (type) {
+        case SceneType::CompoundShapes: return "0. Bilesik Sekiller & Eylemsizlik (Compound Shapes)";
         case SceneType::TriggerSensors: return "1. Tetikleyici & Hayalet Alan (Trigger Zones)";
         case SceneType::CollisionFiltering: return "2. Katman Filtreleme (Bitmask: Kirmizi vs Mavi)";
         case SceneType::RevoluteHinge: return "3. Mentese Mafsali & Tork (Revolute Joint)";
@@ -26,6 +27,8 @@ const char* TestScenes::getSceneName(SceneType type) {
 
 const char* TestScenes::getSceneDescription(SceneType type) {
     switch (type) {
+        case SceneType::CompoundShapes:
+            return "Birden fazla alt geometriyi (kure, kutu) tek bir rijit cisimde birlestirir. Agirlik merkezi ve Huygens-Steiner paralel eksen eylemsizlik tensoru ile dambil, L-blok ve masa gibi karmasik sekilleri simule eder.";
         case SceneType::TriggerSensors:
             return "Tetikleyicileri test eder. Mor renkli alandan kure sifir sekme ve sifir direnc ile gecerken, sagdaki duvara carpan kure geri seker. Tanı panelinde [TETIKLEYICI GIRIS/CIKIS] loglanir.";
         case SceneType::CollisionFiltering:
@@ -62,6 +65,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
     sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
 
     switch (type) {
+        case SceneType::CompoundShapes: setupCompoundShapes(sim); break;
         case SceneType::TriggerSensors: setupTriggerSensors(sim); break;
         case SceneType::CollisionFiltering: setupCollisionFiltering(sim); break;
         case SceneType::RevoluteHinge: setupRevoluteHinge(sim); break;
@@ -393,6 +397,63 @@ void TestScenes::setupRaycastShowcase(Simulator& sim) {
     Pose meshPose(Vector3(6.0f, 1.0f, 0.0f));
     Body meshBody = sim.createBody(meshPose, collision::CollisionShape{collision::StaticMeshShape(meshObj)});
     meshBody.setBodyType(Core::BodyType::Static);
+}
+
+void TestScenes::setupCompoundShapes(Simulator& sim) {
+    // 1. Static Ground
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(25.0f, 0.5f, 25.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 2. Dumbbell (2 kure ve baglanti silindiri/kutusu)
+    {
+        std::vector<collision::CompoundChild> children;
+        children.emplace_back(collision::CollisionShape{collision::SphereShape(0.6f)}, Pose(Vector3(-1.5f, 0.0f, 0.0f)));
+        children.emplace_back(collision::CollisionShape{collision::SphereShape(0.6f)}, Pose(Vector3(1.5f, 0.0f, 0.0f)));
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(Vector3(1.0f, 0.15f, 0.15f))}, Pose(Vector3(0.0f, 0.0f, 0.0f)));
+
+        collision::CompoundShape dumbbell(std::move(children));
+        Pose p(Vector3(-4.0f, 6.0f, 0.0f), Quaternion(Vector3(0.0f, 0.0f, 1.0f), 0.35f));
+        Body b = sim.createBody(p, collision::CollisionShape{dumbbell});
+        (void)b.setMass(4.0f);
+        (void)b.setMaterial(0.4f, 0.4f);
+    }
+
+    // 3. L-Shaped Object (2 dik kutu)
+    {
+        std::vector<collision::CompoundChild> children;
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(Vector3(1.5f, 0.3f, 0.5f))}, Pose(Vector3(0.0f, 0.0f, 0.0f)));
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(Vector3(0.3f, 1.2f, 0.5f))}, Pose(Vector3(-1.2f, 1.2f, 0.0f)));
+
+        collision::CompoundShape lShape(std::move(children));
+        Vector3 axis(0.0f, 1.0f, 0.5f);
+        axis.normalize();
+        Pose p(Vector3(0.0f, 5.0f, 0.0f), Quaternion(axis, 0.5f));
+        Body b = sim.createBody(p, collision::CollisionShape{lShape});
+        (void)b.setMass(3.0f);
+        (void)b.setMaterial(0.4f, 0.2f);
+    }
+
+    // 4. Table (4 bacak + 1 masa tablasi)
+    {
+        std::vector<collision::CompoundChild> children;
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(Vector3(1.2f, 0.1f, 1.2f))}, Pose(Vector3(0.0f, 1.0f, 0.0f)));
+        float legX = 1.0f;
+        float legZ = 1.0f;
+        Vector3 legHalfExtents(0.1f, 0.5f, 0.1f);
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(legHalfExtents)}, Pose(Vector3(-legX, 0.5f, -legZ)));
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(legHalfExtents)}, Pose(Vector3( legX, 0.5f, -legZ)));
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(legHalfExtents)}, Pose(Vector3(-legX, 0.5f,  legZ)));
+        children.emplace_back(collision::CollisionShape{collision::BoxShape(legHalfExtents)}, Pose(Vector3( legX, 0.5f,  legZ)));
+
+        Vector3 tableAxis(1.0f, 0.2f, 0.0f);
+        tableAxis.normalize();
+        Pose p(Vector3(4.0f, 4.0f, 0.0f), Quaternion(tableAxis, 0.2f));
+        collision::CompoundShape table(std::move(children));
+        Body b = sim.createBody(p, collision::CollisionShape{table});
+        (void)b.setMass(5.0f);
+        (void)b.setMaterial(0.4f, 0.1f);
+    }
 }
 
 } // namespace Baryon::Debugger

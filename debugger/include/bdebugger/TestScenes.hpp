@@ -12,6 +12,7 @@
 namespace Baryon::Debugger {
 
 enum class SceneType {
+    CompoundShapes,
     TriggerSensors,
     CollisionFiltering,
     RevoluteHinge,
@@ -32,6 +33,7 @@ public:
     static const char* getSceneDescription(SceneType type);
 
 private:
+    static void setupCompoundShapes(Simulator& sim);
     static void setupTunneling(Simulator& sim);
     static void setupBoxStacking(Simulator& sim);
     static void setupNewtonsCradle(Simulator& sim);

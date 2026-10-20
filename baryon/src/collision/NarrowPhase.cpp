@@ -566,6 +566,23 @@ Vector3 NarrowPhase::getSupportPoint(const CollisionShape &shape,
             bestLocal = arg.v2;
           }
           return transform.position + (transform.orientation * bestLocal);
+        } else if constexpr (std::is_same_v<T, CompoundShape>) {
+          if (arg.children.empty())
+            return transform.position;
+          float maxD = -1e10f;
+          Vector3 bestPt = transform.position;
+          for (const auto &child : arg.children) {
+            Pose childWorldPose;
+            childWorldPose.position = transform.position + (transform.orientation * child.localPose.position);
+            childWorldPose.orientation = transform.orientation * child.localPose.orientation;
+            Vector3 pt = NarrowPhase::getSupportPoint(child.getShape(), childWorldPose, direction);
+            float d = pt.dot(direction);
+            if (d > maxD) {
+              maxD = d;
+              bestPt = pt;
+            }
+          }
+          return bestPt;
         }
         return transform.position;
       },
@@ -806,6 +823,28 @@ bool NarrowPhase::raycast(const CollisionShape &shape, const Pose &transform,
           return raycastTriangle(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, StaticMeshShape>) {
           return raycastStaticMesh(s, transform, ray, hit);
+        } else if constexpr (std::is_same_v<T, CompoundShape>) {
+          bool hitAny = false;
+          float closestDist = 1e10f;
+          RaycastHit bestHit;
+          for (const auto &child : s.children) {
+            Pose childWorldPose;
+            childWorldPose.position = transform.position + (transform.orientation * child.localPose.position);
+            childWorldPose.orientation = transform.orientation * child.localPose.orientation;
+            RaycastHit childHit;
+            if (NarrowPhase::raycast(child.getShape(), childWorldPose, ray, childHit)) {
+              if (childHit.distance < closestDist) {
+                closestDist = childHit.distance;
+                bestHit = childHit;
+                hitAny = true;
+              }
+            }
+          }
+          if (hitAny) {
+            hit = bestHit;
+            return true;
+          }
+          return false;
         }
         return false;
       },

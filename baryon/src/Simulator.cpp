@@ -120,6 +120,8 @@ Body Simulator::createBody(const Pose &transform, const collision::CollisionShap
 			I[0].x = ix;
 			I[1].y = iy;
 			I[2].z = ix;
+		} else if constexpr (std::is_same_v<T, collision::CompoundShape>) {
+			I = s.computeInertiaTensor(1.0f);
 		} else {
 			collision::AABB localAABB = shape.computeLocalAABB();
 			Vector3 size = localAABB.maxBounds - localAABB.minBounds;

@@ -73,6 +73,47 @@ const DumpFrame& DumpRecorder::captureStep(const Simulator& sim, float dt) {
                 rec.isTrigger = col.isTrigger;
                 rec.layer = col.layer;
                 rec.mask = col.mask;
+
+                if (std::holds_alternative<collision::CompoundShape>(col.shape.getVariant())) {
+                    const auto& comp = std::get<collision::CompoundShape>(col.shape.getVariant());
+                    Pose parentPose(Vector3(rec.posX, rec.posY, rec.posZ), Quaternion(rec.rotW, rec.rotX, rec.rotY, rec.rotZ));
+                    for (const auto& child : comp.children) {
+                        DumpEntityRecord childRec = rec;
+                        Pose childWorld = parentPose * child.localPose;
+                        childRec.posX = childWorld.position.x;
+                        childRec.posY = childWorld.position.y;
+                        childRec.posZ = childWorld.position.z;
+                        childRec.rotW = childWorld.orientation.w;
+                        childRec.rotX = childWorld.orientation.x;
+                        childRec.rotY = childWorld.orientation.y;
+                        childRec.rotZ = childWorld.orientation.z;
+
+                        std::visit([&childRec](const auto& s) {
+                            using T = std::decay_t<decltype(s)>;
+                            if constexpr (std::is_same_v<T, collision::BoxShape>) {
+                                childRec.shapeKind = ShapeKind::Box;
+                                childRec.shapeDimX = s.halfExtents.x;
+                                childRec.shapeDimY = s.halfExtents.y;
+                                childRec.shapeDimZ = s.halfExtents.z;
+                            } else if constexpr (std::is_same_v<T, collision::SphereShape>) {
+                                childRec.shapeKind = ShapeKind::Sphere;
+                                childRec.shapeDimX = s.radius;
+                            } else if constexpr (std::is_same_v<T, collision::CapsuleShape>) {
+                                childRec.shapeKind = ShapeKind::Capsule;
+                                childRec.shapeDimX = s.radius;
+                                childRec.shapeDimY = s.height;
+                            } else if constexpr (std::is_same_v<T, collision::StaticMeshShape>) {
+                                childRec.shapeKind = ShapeKind::StaticMesh;
+                            } else {
+                                childRec.shapeKind = ShapeKind::Unknown;
+                            }
+                        }, child.getShape().getVariant());
+
+                        frame.entities.push_back(childRec);
+                    }
+                    continue;
+                }
+
                 std::visit([&rec](const auto& s) {
                     using T = std::decay_t<decltype(s)>;
                     if constexpr (std::is_same_v<T, collision::BoxShape>) {

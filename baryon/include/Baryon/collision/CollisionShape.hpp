@@ -20,6 +20,8 @@
 
 #include "AABB.hpp"
 #include "../math/Vector3.hpp"
+#include "../math/Matrix3x3.hpp"
+#include "../math/Pose.hpp"
 #include <variant>
 #include <vector>
 #include <memory>
@@ -198,6 +200,54 @@ struct StaticMeshShape {
     explicit StaticMeshShape(std::shared_ptr<StaticMesh> m) : mesh(std::move(m)) {}
 };
 
+class CollisionShape;
+
+/**
+ * @struct CompoundChild
+ * @brief CompoundShape içindeki tekil alt şekil ve yerel transformu.
+ */
+struct CompoundChild {
+    std::shared_ptr<CollisionShape> shapePtr; ///< Alt şekil (küre, kutu vb.).
+    Pose localPose;                          ///< Ana gövdeye göre yerel konum ve yönelim.
+
+    CompoundChild() = default;
+    CompoundChild(const CompoundChild&) = default;
+    CompoundChild(CompoundChild&&) noexcept = default;
+    CompoundChild& operator=(const CompoundChild&) = default;
+    CompoundChild& operator=(CompoundChild&&) noexcept = default;
+
+    CompoundChild(CollisionShape s, const Pose& p = Pose());
+    [[nodiscard]] const CollisionShape& getShape() const { return *shapePtr; }
+    [[nodiscard]] CollisionShape& getShape() { return *shapePtr; }
+};
+
+/**
+ * @struct CompoundShape
+ * @brief Birden fazla alt şekli birleştiren bileşik çarpışma geometrisi.
+ * @note İç içe bileşik şekillere (derinlik > 1) izin verilmez.
+ */
+struct CompoundShape {
+    std::vector<CompoundChild> children; ///< Alt şekil listesi.
+
+    CompoundShape() = default;
+    CompoundShape(const CompoundShape&) = default;
+    CompoundShape(CompoundShape&&) noexcept = default;
+    CompoundShape& operator=(const CompoundShape&) = default;
+    CompoundShape& operator=(CompoundShape&&) noexcept = default;
+    explicit CompoundShape(std::vector<CompoundChild> ch) : children(std::move(ch)) {}
+
+    /**
+     * @brief Çocukların hacim ağırlıklı kütle merkezini hesaplar.
+     */
+    [[nodiscard]] Vector3 computeCenterOfMass() const;
+
+    /**
+     * @brief Paralel eksen teoremi (Huygens-Steiner) ile birleşik atalet tensörünü hesaplar.
+     * @param totalMass Bileşik cismin toplam kütlesi.
+     */
+    [[nodiscard]] Matrix3x3 computeInertiaTensor(float totalMass) const;
+};
+
 /// @}
 
 /// @name Çarpışma Şekli Sarmalayıcısı
@@ -206,7 +256,7 @@ struct StaticMeshShape {
 /**
  * @brief Desteklenen tüm çarpışma şekillerini içeren variant tipi.
  */
-using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, ConvexHullShape, TriangleShape, StaticMeshShape>;
+using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, ConvexHullShape, TriangleShape, StaticMeshShape, CompoundShape>;
 
 /**
  * @class CollisionShape
@@ -259,10 +309,167 @@ public:
             else if constexpr (std::is_same_v<T, StaticMeshShape>) {
                 return shape.mesh ? shape.mesh->getBounds() : AABB(Vector3(0,0,0), Vector3(0,0,0));
             }
+            else if constexpr (std::is_same_v<T, CompoundShape>) {
+                if (shape.children.empty()) return AABB(Vector3(0,0,0), Vector3(0,0,0));
+                Vector3 globalMin(1e10f, 1e10f, 1e10f);
+                Vector3 globalMax(-1e10f, -1e10f, -1e10f);
+
+                for (const auto& child : shape.children) {
+                    AABB childLocal = child.getShape().computeLocalAABB();
+                    Vector3 minB = childLocal.minBounds;
+                    Vector3 maxB = childLocal.maxBounds;
+                    Vector3 corners[8] = {
+                        Vector3(minB.x, minB.y, minB.z), Vector3(maxB.x, minB.y, minB.z),
+                        Vector3(minB.x, maxB.y, minB.z), Vector3(maxB.x, maxB.y, minB.z),
+                        Vector3(minB.x, minB.y, maxB.z), Vector3(maxB.x, minB.y, maxB.z),
+                        Vector3(minB.x, maxB.y, maxB.z), Vector3(maxB.x, maxB.y, maxB.z)
+                    };
+                    for (const auto& c : corners) {
+                        Vector3 transC = child.localPose.position + (child.localPose.orientation * c);
+                        globalMin.x = std::min(globalMin.x, transC.x);
+                        globalMin.y = std::min(globalMin.y, transC.y);
+                        globalMin.z = std::min(globalMin.z, transC.z);
+                        globalMax.x = std::max(globalMax.x, transC.x);
+                        globalMax.y = std::max(globalMax.y, transC.y);
+                        globalMax.z = std::max(globalMax.z, transC.z);
+                    }
+                }
+                return AABB(globalMin, globalMax);
+            }
             return AABB();
         }, mShape);
     }
 };
+
+inline CompoundChild::CompoundChild(CollisionShape s, const Pose& p)
+    : shapePtr(std::make_shared<CollisionShape>(std::move(s))), localPose(p) {}
+
+inline Vector3 CompoundShape::computeCenterOfMass() const {
+    if (children.empty()) return Vector3(0.0f, 0.0f, 0.0f);
+
+    float totalVolume = 0.0f;
+    Vector3 weightedSum(0.0f, 0.0f, 0.0f);
+
+    for (const auto& child : children) {
+        float vol = std::visit([](const auto& s) -> float {
+            using ST = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<ST, SphereShape>) {
+                return (4.0f / 3.0f) * 3.14159265f * s.radius * s.radius * s.radius;
+            } else if constexpr (std::is_same_v<ST, BoxShape>) {
+                Vector3 size = s.halfExtents * 2.0f;
+                return size.x * size.y * size.z;
+            } else if constexpr (std::is_same_v<ST, CapsuleShape>) {
+                float r = s.radius;
+                float h = s.height;
+                return 3.14159265f * r * r * h + (4.0f / 3.0f) * 3.14159265f * r * r * r;
+            } else {
+                return 1.0f;
+            }
+        }, child.getShape().getVariant());
+
+        totalVolume += vol;
+        weightedSum += child.localPose.position * vol;
+    }
+
+    if (totalVolume > 1e-8f) {
+        return weightedSum / totalVolume;
+    }
+    return Vector3(0.0f, 0.0f, 0.0f);
+}
+
+inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
+    if (children.empty() || totalMass <= 0.0f) {
+        return Matrix3x3::identity();
+    }
+
+    Vector3 com = computeCenterOfMass();
+
+    std::vector<float> volumes;
+    volumes.reserve(children.size());
+    float totalVolume = 0.0f;
+
+    for (const auto& child : children) {
+        float vol = std::visit([](const auto& s) -> float {
+            using ST = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<ST, SphereShape>) {
+                return (4.0f / 3.0f) * 3.14159265f * s.radius * s.radius * s.radius;
+            } else if constexpr (std::is_same_v<ST, BoxShape>) {
+                Vector3 size = s.halfExtents * 2.0f;
+                return size.x * size.y * size.z;
+            } else if constexpr (std::is_same_v<ST, CapsuleShape>) {
+                float r = s.radius;
+                float h = s.height;
+                return 3.14159265f * r * r * h + (4.0f / 3.0f) * 3.14159265f * r * r * r;
+            } else {
+                return 1.0f;
+            }
+        }, child.getShape().getVariant());
+
+        volumes.push_back(vol);
+        totalVolume += vol;
+    }
+
+    Matrix3x3 totalI;
+    totalI[0] = Vector3(0, 0, 0);
+    totalI[1] = Vector3(0, 0, 0);
+    totalI[2] = Vector3(0, 0, 0);
+
+    for (size_t i = 0; i < children.size(); ++i) {
+        const auto& child = children[i];
+        float m_i = (totalVolume > 1e-8f) ? (totalMass * (volumes[i] / totalVolume))
+                                          : (totalMass / static_cast<float>(children.size()));
+
+        Matrix3x3 I_local;
+        std::visit([&I_local, m_i](const auto& s) {
+            using ST = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<ST, SphereShape>) {
+                float val = 0.4f * m_i * s.radius * s.radius;
+                I_local[0].x = val; I_local[1].y = val; I_local[2].z = val;
+            } else if constexpr (std::is_same_v<ST, BoxShape>) {
+                Vector3 size = s.halfExtents * 2.0f;
+                I_local[0].x = (1.0f / 12.0f) * m_i * (size.y * size.y + size.z * size.z);
+                I_local[1].y = (1.0f / 12.0f) * m_i * (size.x * size.x + size.z * size.z);
+                I_local[2].z = (1.0f / 12.0f) * m_i * (size.x * size.x + size.y * size.y);
+            } else if constexpr (std::is_same_v<ST, CapsuleShape>) {
+                float r = s.radius;
+                float h = s.height;
+                float cylMass = m_i * (h / (h + (4.0f / 3.0f) * r));
+                float capMass = m_i - cylMass;
+                float ix = cylMass * ((1.0f / 12.0f) * h * h + (1.0f / 4.0f) * r * r) +
+                           capMass * ((2.0f / 5.0f) * r * r + (3.0f / 8.0f) * h * r + (1.0f / 4.0f) * h * h);
+                float iy = (1.0f / 2.0f) * cylMass * r * r + (2.0f / 5.0f) * capMass * r * r;
+                I_local[0].x = ix; I_local[1].y = iy; I_local[2].z = ix;
+            } else {
+                I_local[0].x = 1.0f / 6.0f * m_i;
+                I_local[1].y = 1.0f / 6.0f * m_i;
+                I_local[2].z = 1.0f / 6.0f * m_i;
+            }
+        }, child.getShape().getVariant());
+
+        Matrix3x3 R = child.localPose.getOrientationMatrix();
+        Matrix3x3 I_rotated = R * I_local * R.getTranspose();
+
+        Vector3 d = child.localPose.position - com;
+        Matrix3x3 parallelAxis;
+        parallelAxis[0].x = m_i * (d.y * d.y + d.z * d.z);
+        parallelAxis[0].y = -m_i * (d.x * d.y);
+        parallelAxis[0].z = -m_i * (d.x * d.z);
+
+        parallelAxis[1].x = -m_i * (d.x * d.y);
+        parallelAxis[1].y = m_i * (d.x * d.x + d.z * d.z);
+        parallelAxis[1].z = -m_i * (d.y * d.z);
+
+        parallelAxis[2].x = -m_i * (d.x * d.z);
+        parallelAxis[2].y = -m_i * (d.y * d.z);
+        parallelAxis[2].z = m_i * (d.x * d.x + d.y * d.y);
+
+        totalI[0] += I_rotated[0] + parallelAxis[0];
+        totalI[1] += I_rotated[1] + parallelAxis[1];
+        totalI[2] += I_rotated[2] + parallelAxis[2];
+    }
+
+    return totalI;
+}
 
 /// @}
 

@@ -182,6 +182,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CcdBounceAirTest.cpp")
     add_test(NAME CcdBounceAirTest COMMAND CcdBounceAirTest)
 endif()
 
+# Compound Shape Test (Faz 1.1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CompoundShapeTest.cpp")
+    add_executable(CompoundShapeTest tests/CompoundShapeTest.cpp)
+    target_link_libraries(CompoundShapeTest PRIVATE BaryonHarnessLib Baryon::BaryonStatic)
+    add_test(NAME CompoundShapeTest COMMAND CompoundShapeTest)
+endif()
+
 # Headless Physics Harness Library & Executable (Faz 0.1)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
     add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)
