@@ -107,6 +107,31 @@ struct CylinderShape {
 };
 
 /**
+ * @struct ConeShape
+ * @brief Koni çarpışma geometrisi.
+ * @details Yarıçap (radius) ve toplam yükseklik (height) ile tanımlanır.
+ *          Ağırlık merkezi tabandan h/4 mesafede yerel orijinde (0,0,0) konumlandırılmıştır.
+ *          Dairesel taban y = -0.25 * height, tepe noktası (apex) (0, 0.75 * height, 0) seviyesindedir.
+ */
+struct ConeShape {
+    float radius; ///< Koni taban yarıçapı (metre).
+    float height; ///< Koni toplam yüksekliği (metre).
+
+    /**
+     * @brief Koni oluşturur.
+     * @param r Taban yarıçapı.
+     * @param h Toplam yükseklik.
+     */
+    constexpr ConeShape(float r = 0.5f, float h = 1.0f) : radius(r), height(h) {}
+
+    /** @brief Taban dairesinin yerel Y koordinatını döndürür (-h/4). */
+    [[nodiscard]] constexpr float getBaseY() const { return -0.25f * height; }
+
+    /** @brief Tepe noktasının yerel Y koordinatını döndürür (3h/4). */
+    [[nodiscard]] constexpr float getApexY() const { return 0.75f * height; }
+};
+
+/**
  * @struct ConvexHullShape
  * @brief Dışbükey örtü (convex hull) çarpışma geometrisi.
  * @details Bir nokta bulutu (vertex dizisi) ile tanımlanan dışbükey hacimdir.
@@ -277,7 +302,7 @@ struct CompoundShape {
 /**
  * @brief Desteklenen tüm çarpışma şekillerini içeren variant tipi.
  */
-using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, CylinderShape, ConvexHullShape, TriangleShape, StaticMeshShape, CompoundShape>;
+using ShapeVariant = std::variant<SphereShape, BoxShape, CapsuleShape, CylinderShape, ConeShape, ConvexHullShape, TriangleShape, StaticMeshShape, CompoundShape>;
 
 /**
  * @class CollisionShape
@@ -317,6 +342,9 @@ public:
             } else if constexpr (std::is_same_v<T, CylinderShape>) {
                 return AABB(Vector3(-shape.radius, -shape.halfHeight, -shape.radius), 
                             Vector3(shape.radius, shape.halfHeight, shape.radius));
+            } else if constexpr (std::is_same_v<T, ConeShape>) {
+                return AABB(Vector3(-shape.radius, shape.getBaseY(), -shape.radius),
+                            Vector3(shape.radius, shape.getApexY(), shape.radius));
             } else if constexpr (std::is_same_v<T, ConvexHullShape>) {
                 if (shape.vertices.empty()) return AABB(Vector3(0,0,0), Vector3(0,0,0));
                 Vector3 minB = shape.vertices[0], maxB = shape.vertices[0];
@@ -390,6 +418,10 @@ inline Vector3 CompoundShape::computeCenterOfMass() const {
                 float r = s.radius;
                 float h = s.getHeight();
                 return 3.14159265f * r * r * h;
+            } else if constexpr (std::is_same_v<ST, ConeShape>) {
+                float r = s.radius;
+                float h = s.height;
+                return (1.0f / 3.0f) * 3.14159265f * r * r * h;
             } else {
                 return 1.0f;
             }
@@ -432,6 +464,10 @@ inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
                 float r = s.radius;
                 float h = s.getHeight();
                 return 3.14159265f * r * r * h;
+            } else if constexpr (std::is_same_v<ST, ConeShape>) {
+                float r = s.radius;
+                float h = s.height;
+                return (1.0f / 3.0f) * 3.14159265f * r * r * h;
             } else {
                 return 1.0f;
             }
@@ -476,6 +512,12 @@ inline Matrix3x3 CompoundShape::computeInertiaTensor(float totalMass) const {
                 float h = s.getHeight();
                 float ixz = (1.0f / 12.0f) * m_i * (3.0f * r * r + h * h);
                 float iy = 0.5f * m_i * r * r;
+                I_local[0].x = ixz; I_local[1].y = iy; I_local[2].z = ixz;
+            } else if constexpr (std::is_same_v<ST, ConeShape>) {
+                float r = s.radius;
+                float h = s.height;
+                float ixz = (3.0f / 20.0f) * m_i * (r * r + 0.25f * h * h);
+                float iy = 0.3f * m_i * r * r;
                 I_local[0].x = ixz; I_local[1].y = iy; I_local[2].z = ixz;
             } else {
                 I_local[0].x = 1.0f / 6.0f * m_i;

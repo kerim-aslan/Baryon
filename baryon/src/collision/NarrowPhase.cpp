@@ -548,6 +548,20 @@ Vector3 NarrowPhase::getSupportPoint(const CollisionShape &shape,
           }
           Vector3 localResult(x, y, z);
           return transform.position + (transform.orientation * localResult);
+        } else if constexpr (std::is_same_v<T, ConeShape>) {
+          Quaternion invRot = transform.orientation.getConjugate();
+          Vector3 localDir = invRot * direction;
+          Vector3 apex(0.0f, arg.getApexY(), 0.0f);
+          float r_xz = std::sqrt(localDir.x * localDir.x + localDir.z * localDir.z);
+          float bx = 0.0f;
+          float bz = 0.0f;
+          if (r_xz > 1e-12f) {
+            bx = arg.radius * (localDir.x / r_xz);
+            bz = arg.radius * (localDir.z / r_xz);
+          }
+          Vector3 basePoint(bx, arg.getBaseY(), bz);
+          Vector3 localResult = (localDir.dot(apex) >= localDir.dot(basePoint)) ? apex : basePoint;
+          return transform.position + (transform.orientation * localResult);
         } else if constexpr (std::is_same_v<T, ConvexHullShape>) {
           if (arg.vertices.empty())
             return transform.position;
@@ -795,6 +809,97 @@ static bool raycastCylinder(const CylinderShape &s, const Pose &transform,
   return false;
 }
 
+static bool raycastCone(const ConeShape &s, const Pose &transform,
+                        const Ray &ray, RaycastHit &hit) {
+  Vector3 p = transform.getInverse() * ray.origin;
+  Vector3 d = transform.orientation.getInverse() * ray.direction;
+  float radius = s.radius;
+  float height = s.height;
+  if (radius <= 0.0f || height <= 0.0f)
+    return false;
+
+  float yBase = s.getBaseY();
+  float yApex = s.getApexY();
+  float k = radius / height;
+  float k2 = k * k;
+
+  float closestT = ray.maxDistance + 1.0f;
+  Vector3 localHitNorm(0, 1, 0);
+  bool hitAny = false;
+
+  // 1. Dairesel taban kapagi: y = yBase, normal = (0, -1, 0)
+  if (std::abs(d.y) > 1e-7f) {
+    float tBase = (yBase - p.y) / d.y;
+    if (tBase > 0.0f && tBase <= ray.maxDistance && tBase < closestT) {
+      float xAtHit = p.x + d.x * tBase;
+      float zAtHit = p.z + d.z * tBase;
+      if (xAtHit * xAtHit + zAtHit * zAtHit <= radius * radius) {
+        closestT = tBase;
+        localHitNorm = Vector3(0.0f, -1.0f, 0.0f);
+        hitAny = true;
+      }
+    }
+  }
+
+  // 2. Kavisli konik yuzey: x^2 + z^2 = k^2 * (yApex - y)^2, y in [yBase, yApex]
+  float deltaY = yApex - p.y;
+  float A = (d.x * d.x + d.z * d.z) - k2 * (d.y * d.y);
+  float B = (p.x * d.x + p.z * d.z) + k2 * deltaY * d.y;
+  float C = (p.x * p.x + p.z * p.z) - k2 * (deltaY * deltaY);
+
+  if (std::abs(A) > 1e-7f) {
+    float discr = B * B - A * C;
+    if (discr >= 0.0f) {
+      float sqrtD = std::sqrt(discr);
+      float t0 = (-B - sqrtD) / A;
+      float t1 = (-B + sqrtD) / A;
+      for (float tCandidate : {t0, t1}) {
+        if (tCandidate > 0.0f && tCandidate <= ray.maxDistance && tCandidate < closestT) {
+          float yAtHit = p.y + d.y * tCandidate;
+          if (yAtHit >= yBase && yAtHit <= yApex) {
+            closestT = tCandidate;
+            float xAtHit = p.x + d.x * tCandidate;
+            float zAtHit = p.z + d.z * tCandidate;
+            float r_xz = std::sqrt(xAtHit * xAtHit + zAtHit * zAtHit);
+            if (r_xz > 1e-6f) {
+              localHitNorm = Vector3(xAtHit, k * r_xz, zAtHit).getNormalized();
+            } else {
+              localHitNorm = Vector3(0.0f, 1.0f, 0.0f);
+            }
+            hitAny = true;
+          }
+        }
+      }
+    }
+  } else if (std::abs(B) > 1e-7f) {
+    float tCandidate = -C / (2.0f * B);
+    if (tCandidate > 0.0f && tCandidate <= ray.maxDistance && tCandidate < closestT) {
+      float yAtHit = p.y + d.y * tCandidate;
+      if (yAtHit >= yBase && yAtHit <= yApex) {
+        closestT = tCandidate;
+        float xAtHit = p.x + d.x * tCandidate;
+        float zAtHit = p.z + d.z * tCandidate;
+        float r_xz = std::sqrt(xAtHit * xAtHit + zAtHit * zAtHit);
+        if (r_xz > 1e-6f) {
+          localHitNorm = Vector3(xAtHit, k * r_xz, zAtHit).getNormalized();
+        } else {
+          localHitNorm = Vector3(0.0f, 1.0f, 0.0f);
+        }
+        hitAny = true;
+      }
+    }
+  }
+
+  if (hitAny && closestT <= ray.maxDistance) {
+    hit.hasHit = true;
+    hit.distance = closestT;
+    hit.position = ray.origin + ray.direction * closestT;
+    hit.normal = (transform.orientation * localHitNorm).getNormalized();
+    return true;
+  }
+  return false;
+}
+
 static bool raycastTriangle(const TriangleShape &s, const Pose &transform,
                             const Ray &ray, RaycastHit &hit) {
   Vector3 v0 = transform.position + (transform.orientation * s.v0);
@@ -898,6 +1003,8 @@ bool NarrowPhase::raycast(const CollisionShape &shape, const Pose &transform,
           return raycastCapsule(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, CylinderShape>) {
           return raycastCylinder(s, transform, ray, hit);
+        } else if constexpr (std::is_same_v<T, ConeShape>) {
+          return raycastCone(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, TriangleShape>) {
           return raycastTriangle(s, transform, ray, hit);
         } else if constexpr (std::is_same_v<T, StaticMeshShape>) {

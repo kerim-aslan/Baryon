@@ -77,6 +77,7 @@ public:
     void drawWireSphere(const Pose& pose, float radius, const Vector3& color, int segments = 16);
     void drawWireCapsule(const Pose& pose, float radius, float height, const Vector3& color, int segments = 12);
     void drawWireCylinder(const Pose& pose, float radius, float height, const Vector3& color, int segments = 16);
+    void drawWireCone(const Pose& pose, float radius, float height, const Vector3& color, int segments = 16);
     void drawWireMesh(const Pose& pose, const Vector3& color);
     void drawRaycast(const Vector3& origin, const Vector3& end, bool hasHit, const Vector3& hitPoint, const Vector3& hitNormal);
     void drawContactPoint(const Vector3& pt, const Vector3& normal, float penetration, float normalImpulse);

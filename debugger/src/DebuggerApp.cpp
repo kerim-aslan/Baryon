@@ -274,6 +274,8 @@ void DebuggerApp::render3DView() {
                     mRenderer.drawWireCapsule(pose, e.shapeDimX, e.shapeDimY, color);
                 } else if (e.shapeKind == ShapeKind::Cylinder) {
                     mRenderer.drawWireCylinder(pose, e.shapeDimX, e.shapeDimY, color);
+                } else if (e.shapeKind == ShapeKind::Cone) {
+                    mRenderer.drawWireCone(pose, e.shapeDimX, e.shapeDimY, color);
                 } else if (e.shapeKind == ShapeKind::StaticMesh) {
                     mRenderer.drawWireMesh(pose, color);
                 }

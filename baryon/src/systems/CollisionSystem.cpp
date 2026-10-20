@@ -390,6 +390,8 @@ void CollisionSystem::processConvexCollision(
     bool isCapsuleB = std::holds_alternative<collision::CapsuleShape>(collB.shape.getVariant());
     bool isCylinderA = std::holds_alternative<collision::CylinderShape>(collA.shape.getVariant());
     bool isCylinderB = std::holds_alternative<collision::CylinderShape>(collB.shape.getVariant());
+    bool isConeA = std::holds_alternative<collision::ConeShape>(collA.shape.getVariant());
+    bool isConeB = std::holds_alternative<collision::ConeShape>(collB.shape.getVariant());
 
     if (isHullA) {
       const auto &hullA = std::get<collision::ConvexHullShape>(collA.shape.getVariant());
@@ -576,6 +578,56 @@ void CollisionSystem::processConvexCollision(
             Vector3(0.0f, capY, -cylB.radius)
         };
         for (const auto &v : capPts) {
+          collision::ContactPoint faceCp;
+          faceCp.worldPosition = transB.position + (transB.orientation * v);
+          faceCp.localPointA = transA.orientation.getConjugate() *
+                              (faceCp.worldPosition - transA.position);
+          faceCp.localPointB = v;
+          faceCp.penetration = info.penetration;
+          faceCp.normalImpulse = 0.0f;
+          faceCp.tangentImpulse1 = 0.0f;
+          faceCp.tangentImpulse2 = 0.0f;
+          faceCp.splitImpulse = 0.0f;
+          it->second.addContact(faceCp);
+        }
+      }
+    } else if (isConeA) {
+      const auto &coneA = std::get<collision::ConeShape>(collA.shape.getVariant());
+      Vector3 baseNormalA = transA.orientation * Vector3(0, -1, 0);
+      if (baseNormalA.dot(-it->second.normal) > 0.85f) {
+        float baseY = coneA.getBaseY();
+        std::array<Vector3, 4> basePts = {
+            Vector3(coneA.radius, baseY, 0.0f),
+            Vector3(-coneA.radius, baseY, 0.0f),
+            Vector3(0.0f, baseY, coneA.radius),
+            Vector3(0.0f, baseY, -coneA.radius)
+        };
+        for (const auto &v : basePts) {
+          collision::ContactPoint faceCp;
+          faceCp.worldPosition = transA.position + (transA.orientation * v);
+          faceCp.localPointA = v;
+          faceCp.localPointB = transB.orientation.getConjugate() *
+                              (faceCp.worldPosition - transB.position);
+          faceCp.penetration = info.penetration;
+          faceCp.normalImpulse = 0.0f;
+          faceCp.tangentImpulse1 = 0.0f;
+          faceCp.tangentImpulse2 = 0.0f;
+          faceCp.splitImpulse = 0.0f;
+          it->second.addContact(faceCp);
+        }
+      }
+    } else if (isConeB) {
+      const auto &coneB = std::get<collision::ConeShape>(collB.shape.getVariant());
+      Vector3 baseNormalB = transB.orientation * Vector3(0, -1, 0);
+      if (baseNormalB.dot(it->second.normal) > 0.85f) {
+        float baseY = coneB.getBaseY();
+        std::array<Vector3, 4> basePts = {
+            Vector3(coneB.radius, baseY, 0.0f),
+            Vector3(-coneB.radius, baseY, 0.0f),
+            Vector3(0.0f, baseY, coneB.radius),
+            Vector3(0.0f, baseY, -coneB.radius)
+        };
+        for (const auto &v : basePts) {
           collision::ContactPoint faceCp;
           faceCp.worldPosition = transB.position + (transB.orientation * v);
           faceCp.localPointA = transA.orientation.getConjugate() *

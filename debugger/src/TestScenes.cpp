@@ -420,6 +420,11 @@ void TestScenes::setupRaycastShowcase(Simulator& sim) {
     Pose cylTargetPose(Vector3(10.0f, 2.0f, 0.0f));
     Body cylTarget = sim.createBody(cylTargetPose, collision::CollisionShape{collision::CylinderShape(0.7f, 1.5f)});
     cylTarget.setBodyType(Core::BodyType::Static);
+
+    // 6. Koni Sekli (X = 14)
+    Pose coneTargetPose(Vector3(14.0f, 2.0f, 0.0f));
+    Body coneTarget = sim.createBody(coneTargetPose, collision::CollisionShape{collision::ConeShape(0.8f, 2.0f)});
+    coneTarget.setBodyType(Core::BodyType::Static);
 }
 
 void TestScenes::setupCompoundShapes(Simulator& sim) {

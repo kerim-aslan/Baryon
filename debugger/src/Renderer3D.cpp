@@ -348,6 +348,33 @@ void Renderer3D::drawWireCylinder(const Pose& pose, float radius, float height, 
     }
 }
 
+void Renderer3D::drawWireCone(const Pose& pose, float radius, float height, const Vector3& color, int segments) {
+    float baseY = -0.25f * height;
+    float apexY = 0.75f * height;
+    Vector3 apex = pose * Vector3(0.0f, apexY, 0.0f);
+
+    // Taban dairesel kapagi (XZ duzlemi)
+    for (int i = 0; i < segments; ++i) {
+        float a0 = (i / static_cast<float>(segments)) * 6.2831853f;
+        float a1 = ((i + 1) / static_cast<float>(segments)) * 6.2831853f;
+        float c0 = std::cos(a0) * radius;
+        float s0 = std::sin(a0) * radius;
+        float c1 = std::cos(a1) * radius;
+        float s1 = std::sin(a1) * radius;
+
+        addLine(pose * Vector3(c0, baseY, s0), pose * Vector3(c1, baseY, s1), color);
+    }
+
+    // Tepe noktasindan tabana inen yan cizgiler (8 hat)
+    int sideLines = 8;
+    for (int i = 0; i < sideLines; ++i) {
+        float a = (i / static_cast<float>(sideLines)) * 6.2831853f;
+        float cx = std::cos(a) * radius;
+        float cz = std::sin(a) * radius;
+        addLine(apex, pose * Vector3(cx, baseY, cz), color);
+    }
+}
+
 void Renderer3D::drawWireMesh(const Pose& pose, const Vector3& color) {
     // 3D Piramit Temsili Tel Kafes (Pyramid wireframe)
     Vector3 v0 = pose * Vector3(-1.0f, 0.0f, -1.0f);

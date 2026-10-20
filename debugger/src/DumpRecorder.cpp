@@ -106,6 +106,10 @@ const DumpFrame& DumpRecorder::captureStep(const Simulator& sim, float dt) {
                                 childRec.shapeKind = ShapeKind::Cylinder;
                                 childRec.shapeDimX = s.radius;
                                 childRec.shapeDimY = s.halfHeight * 2.0f;
+                            } else if constexpr (std::is_same_v<T, collision::ConeShape>) {
+                                childRec.shapeKind = ShapeKind::Cone;
+                                childRec.shapeDimX = s.radius;
+                                childRec.shapeDimY = s.height;
                             } else if constexpr (std::is_same_v<T, collision::StaticMeshShape>) {
                                 childRec.shapeKind = ShapeKind::StaticMesh;
                             } else {
@@ -136,6 +140,10 @@ const DumpFrame& DumpRecorder::captureStep(const Simulator& sim, float dt) {
                         rec.shapeKind = ShapeKind::Cylinder;
                         rec.shapeDimX = s.radius;
                         rec.shapeDimY = s.halfHeight * 2.0f;
+                    } else if constexpr (std::is_same_v<T, collision::ConeShape>) {
+                        rec.shapeKind = ShapeKind::Cone;
+                        rec.shapeDimX = s.radius;
+                        rec.shapeDimY = s.height;
                     } else if constexpr (std::is_same_v<T, collision::StaticMeshShape>) {
                         rec.shapeKind = ShapeKind::StaticMesh;
                     } else {
