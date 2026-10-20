@@ -333,6 +333,46 @@ collision::RaycastHit Simulator::raycast(const Vector3 &origin, const Vector3 &d
 	return closestHit;
 }
 
+std::vector<collision::RaycastHit> Simulator::raycastAll(const Vector3 &origin, const Vector3 &direction, 
+                                                         float maxDist, uint32_t layerMask) const {
+	std::vector<collision::RaycastHit> hits;
+	if (maxDist <= 0.0f || direction.lengthSquare() < 1e-12f || layerMask == 0) {
+		return hits;
+	}
+
+	collision::Ray ray(origin, direction, maxDist);
+
+	mSpatialPartitioning.getTree().query(ray.computeAABB(), [&](ecs::Entity obstacle) {
+		if (!mRegistry.hasComponent<Pose>(obstacle) || !mRegistry.hasComponent<ecs::ColliderData>(obstacle)) {
+			return;
+		}
+
+		const auto &obsColl = mRegistry.getComponent<ecs::ColliderData>(obstacle);
+		if ((obsColl.layer & layerMask) == 0) {
+			return;
+		}
+
+		const auto &obsTrans = mRegistry.getComponent<Pose>(obstacle);
+
+		collision::RaycastHit hit;
+		if (collision::NarrowPhase::raycast(obsColl.shape, obsTrans, ray, hit)) {
+			if (hit.hasHit && hit.distance <= maxDist) {
+				hit.entity = obstacle;
+				hits.push_back(hit);
+			}
+		}
+	});
+
+	std::sort(hits.begin(), hits.end(), [](const collision::RaycastHit &a, const collision::RaycastHit &b) {
+		if (std::abs(a.distance - b.distance) < 1e-6f) {
+			return a.entity.id < b.entity.id;
+		}
+		return a.distance < b.distance;
+	});
+
+	return hits;
+}
+
 /**
  * @brief Belirli bir nesneye ait tüm aktif temas noktalarını listeler.
  */

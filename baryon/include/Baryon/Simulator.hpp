@@ -137,6 +137,18 @@ public:
     collision::RaycastHit raycast(const Vector3& origin, const Vector3& direction, float maxDist = 1000.0f);
 
     /**
+     * @brief Dünya üzerinde ışın fırlatarak ışının kestiği TÜM objeleri tespit eder.
+     * @details İade edilen liste mesafeye göre (en yakından en uzağa) küçükten büyüğe sıralıdır.
+     * @param origin Işının çıkış noktası.
+     * @param direction Işının fırlatıldığı yön.
+     * @param maxDist Işının gidebileceği maksimum mesafe (Varsayılan: 1000.0f).
+     * @param layerMask Filtrelenecek katman bitmaskesi (Varsayılan: 0xFFFFFFFF).
+     * @return Kesişen tüm cisimlerin çarpışma detaylarını içeren sıralı liste.
+     */
+    [[nodiscard]] std::vector<collision::RaycastHit> raycastAll(const Vector3& origin, const Vector3& direction, 
+                                                                float maxDist = 1000.0f, uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
      * @brief Belirli bir objeye ait o anki tüm temas bilgilerini döndürür.
      * @details Karakter kontrolcüleri gibi özel sistemlerin çevredeki objelerle 
      *          olan temas detaylarını okuması için kullanılır.

@@ -203,6 +203,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SweepQueryTest.cpp")
     add_test(NAME SweepQueryTest COMMAND SweepQueryTest)
 endif()
 
+# Raycast All Test (Faz 1.4)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RaycastAllTest.cpp")
+    add_executable(RaycastAllTest tests/RaycastAllTest.cpp)
+    target_link_libraries(RaycastAllTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME RaycastAllTest COMMAND RaycastAllTest)
+endif()
+
 # Headless Physics Harness Library & Executable (Faz 0.1)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
     add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)
