@@ -14,6 +14,7 @@ namespace Baryon::Debugger {
 enum class SceneType {
     CompoundShapes,
     OverlapQueries,
+    SweepQueries,
     TriggerSensors,
     CollisionFiltering,
     RevoluteHinge,
@@ -36,6 +37,7 @@ public:
 private:
     static void setupCompoundShapes(Simulator& sim);
     static void setupOverlapQueries(Simulator& sim);
+    static void setupSweepQueries(Simulator& sim);
     static void setupTunneling(Simulator& sim);
     static void setupBoxStacking(Simulator& sim);
     static void setupNewtonsCradle(Simulator& sim);

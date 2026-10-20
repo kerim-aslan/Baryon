@@ -196,6 +196,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/OverlapQueryTest.cpp")
     add_test(NAME OverlapQueryTest COMMAND OverlapQueryTest)
 endif()
 
+# Sweep Query Test (Faz 1.3)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SweepQueryTest.cpp")
+    add_executable(SweepQueryTest tests/SweepQueryTest.cpp)
+    target_link_libraries(SweepQueryTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME SweepQueryTest COMMAND SweepQueryTest)
+endif()
+
 # Headless Physics Harness Library & Executable (Faz 0.1)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
     add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)

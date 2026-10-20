@@ -29,6 +29,7 @@
 #include "Baryon/systems/IslandSystem.hpp"
 #include "Baryon/body/Body.hpp"
 #include "Baryon/collision/Ray.hpp"
+#include "Baryon/collision/Sweep.hpp"
 #include "Baryon/collision/CollisionListener.hpp"
 
 #include <vector>
@@ -193,6 +194,66 @@ public:
      */
     [[nodiscard]] std::vector<Body> overlapShapeBodies(const collision::CollisionShape& shape, const Pose& pose, 
                                                        uint32_t layerMask = 0xFFFFFFFF);
+
+    /// @}
+
+    /// @name Süpürme ve Şekil Fırlatma Sorguları (Sweep Queries / Shape Cast)
+    /// @{
+
+    /**
+     * @brief Küre şeklini belirtilen doğrultuda fırlatarak ilk temas noktasını sorgular.
+     * @param center Kürenin başlangıç merkezi.
+     * @param radius Kürenin yarıçapı.
+     * @param direction Süpürme yönü.
+     * @param maxDistance Maksimum süpürme mesafesi.
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Süpürme temas sonucu (SweepHit).
+     */
+    [[nodiscard]] collision::SweepHit sweepSphere(const Vector3& center, float radius, 
+                                                  const Vector3& direction, float maxDistance, 
+                                                  uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
+     * @brief Yönelimli kutu şeklini belirtilen doğrultuda fırlatarak ilk temas noktasını sorgular.
+     * @param center Kutunun başlangıç merkezi.
+     * @param halfExtents Kutunun yarım boyutları (x, y, z).
+     * @param orientation Kutunun dönüş yönelimi.
+     * @param direction Süpürme yönü.
+     * @param maxDistance Maksimum süpürme mesafesi.
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Süpürme temas sonucu (SweepHit).
+     */
+    [[nodiscard]] collision::SweepHit sweepBox(const Vector3& center, const Vector3& halfExtents, 
+                                               const Quaternion& orientation, const Vector3& direction, 
+                                               float maxDistance, uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
+     * @brief Yönelimli kapsül şeklini belirtilen doğrultuda fırlatarak ilk temas noktasını sorgular.
+     * @param center Kapsülün başlangıç merkezi.
+     * @param radius Kapsülün yarıçapı.
+     * @param height Kapsülün silindir yüksekliği.
+     * @param orientation Kapsülün dönüş yönelimi.
+     * @param direction Süpürme yönü.
+     * @param maxDistance Maksimum süpürme mesafesi.
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Süpürme temas sonucu (SweepHit).
+     */
+    [[nodiscard]] collision::SweepHit sweepCapsule(const Vector3& center, float radius, float height, 
+                                                   const Quaternion& orientation, const Vector3& direction, 
+                                                   float maxDistance, uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
+     * @brief Herhangi bir geometrik şekli belirtilen doğrultuda fırlatarak ilk temas noktasını sorgular.
+     * @param shape Fırlatılacak şekil (Küre, Kutu, Kapsül, CompoundShape vb.).
+     * @param startPose Şeklin başlangıç pozu (konum ve yönelim).
+     * @param direction Süpürme yönü.
+     * @param maxDistance Maksimum süpürme mesafesi.
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Süpürme temas sonucu (SweepHit).
+     */
+    [[nodiscard]] collision::SweepHit sweepShape(const collision::CollisionShape& shape, const Pose& startPose, 
+                                                 const Vector3& direction, float maxDistance, 
+                                                 uint32_t layerMask = 0xFFFFFFFF) const;
 
     /// @}
 

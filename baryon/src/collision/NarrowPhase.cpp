@@ -1726,4 +1726,190 @@ bool NarrowPhase::testOverlap(const CollisionShape &shapeA, const Pose &poseA,
   return GJK(shapeA, poseA, shapeB, poseB, simplex);
 }
 
+bool NarrowPhase::sweepShape(const CollisionShape &shapeA, const Pose &startPoseA,
+                             const Vector3 &direction, float maxDistance,
+                             const CollisionShape &shapeB, const Pose &poseB,
+                             SweepHit &outHit) {
+  outHit.hasHit = false;
+  outHit.distance = maxDistance;
+  outHit.fraction = 1.0f;
+
+  if (maxDistance <= 0.0f || direction.lengthSquare() < 1e-12f) {
+    return false;
+  }
+
+  Vector3 dir = direction.getNormalized();
+
+  // 1. CompoundShape handling for shapeA
+  if (std::holds_alternative<CompoundShape>(shapeA.getVariant())) {
+    const auto &compA = std::get<CompoundShape>(shapeA.getVariant());
+    bool hitAny = false;
+    float closestDist = maxDistance + 1.0f;
+    SweepHit bestHit;
+
+    for (const auto &child : compA.children) {
+      Pose childStartPose;
+      childStartPose.position = startPoseA.position + (startPoseA.orientation * child.localPose.position);
+      childStartPose.orientation = startPoseA.orientation * child.localPose.orientation;
+
+      SweepHit childHit;
+      if (sweepShape(child.getShape(), childStartPose, dir, maxDistance, shapeB, poseB, childHit)) {
+        if (childHit.distance < closestDist) {
+          closestDist = childHit.distance;
+          bestHit = childHit;
+          hitAny = true;
+        }
+      }
+    }
+
+    if (hitAny) {
+      outHit = bestHit;
+      return true;
+    }
+    return false;
+  }
+
+  // 2. CompoundShape handling for shapeB
+  if (std::holds_alternative<CompoundShape>(shapeB.getVariant())) {
+    const auto &compB = std::get<CompoundShape>(shapeB.getVariant());
+    bool hitAny = false;
+    float closestDist = maxDistance + 1.0f;
+    SweepHit bestHit;
+
+    for (const auto &child : compB.children) {
+      Pose childPose;
+      childPose.position = poseB.position + (poseB.orientation * child.localPose.position);
+      childPose.orientation = poseB.orientation * child.localPose.orientation;
+
+      SweepHit childHit;
+      if (sweepShape(shapeA, startPoseA, dir, maxDistance, child.getShape(), childPose, childHit)) {
+        if (childHit.distance < closestDist) {
+          closestDist = childHit.distance;
+          bestHit = childHit;
+          hitAny = true;
+        }
+      }
+    }
+
+    if (hitAny) {
+      outHit = bestHit;
+      return true;
+    }
+    return false;
+  }
+
+  // 3. Swept AABB preliminary test for leaf shapes
+  auto transformAabb = [](const AABB &local, const Pose &pose) -> AABB {
+    Vector3 minB = local.minBounds;
+    Vector3 maxB = local.maxBounds;
+    Vector3 corners[8] = {
+        Vector3(minB.x, minB.y, minB.z), Vector3(maxB.x, minB.y, minB.z),
+        Vector3(minB.x, maxB.y, minB.z), Vector3(maxB.x, maxB.y, minB.z),
+        Vector3(minB.x, minB.y, maxB.z), Vector3(maxB.x, minB.y, maxB.z),
+        Vector3(minB.x, maxB.y, maxB.z), Vector3(maxB.x, maxB.y, maxB.z)
+    };
+    Vector3 outMin(1e10f, 1e10f, 1e10f);
+    Vector3 outMax(-1e10f, -1e10f, -1e10f);
+    for (const auto &c : corners) {
+      Vector3 wc = pose.position + (pose.orientation * c);
+      outMin.x = std::min(outMin.x, wc.x);
+      outMin.y = std::min(outMin.y, wc.y);
+      outMin.z = std::min(outMin.z, wc.z);
+      outMax.x = std::max(outMax.x, wc.x);
+      outMax.y = std::max(outMax.y, wc.y);
+      outMax.z = std::max(outMax.z, wc.z);
+    }
+    return AABB(outMin, outMax);
+  };
+
+  AABB aabbB = transformAabb(shapeB.computeLocalAABB(), poseB);
+  AABB aabbA_start = transformAabb(shapeA.computeLocalAABB(), startPoseA);
+  Pose endPoseA = startPoseA;
+  endPoseA.position = startPoseA.position + dir * maxDistance;
+  AABB aabbA_end = transformAabb(shapeA.computeLocalAABB(), endPoseA);
+
+  Vector3 sweptMin(
+      std::min(aabbA_start.minBounds.x, aabbA_end.minBounds.x) - 0.05f,
+      std::min(aabbA_start.minBounds.y, aabbA_end.minBounds.y) - 0.05f,
+      std::min(aabbA_start.minBounds.z, aabbA_end.minBounds.z) - 0.05f);
+  Vector3 sweptMax(
+      std::max(aabbA_start.maxBounds.x, aabbA_end.maxBounds.x) + 0.05f,
+      std::max(aabbA_start.maxBounds.y, aabbA_end.maxBounds.y) + 0.05f,
+      std::max(aabbA_start.maxBounds.z, aabbA_end.maxBounds.z) + 0.05f);
+  AABB sweptAabbA(sweptMin, sweptMax);
+
+  if (!sweptAabbA.testCollision(aabbB)) {
+    return false;
+  }
+
+  // 4. Initial overlap test (t = 0)
+  if (testOverlap(shapeA, startPoseA, shapeB, poseB)) {
+    outHit.hasHit = true;
+    outHit.distance = 0.0f;
+    outHit.fraction = 0.0f;
+    outHit.normal = -dir;
+    outHit.point = startPoseA.position;
+    return true;
+  }
+
+  // 5. Conservative Advancement with GJK distance
+  constexpr float kHitTolerance = 2e-3f;
+  constexpr int kMaxIter = 32;
+  float t = 0.0f;
+
+  Vector3 ptA, ptB;
+  Vector3 lastValidPtA = startPoseA.position;
+  Vector3 lastValidPtB = poseB.position;
+  Vector3 lastValidNorm = -dir;
+
+  for (int iter = 0; iter < kMaxIter; ++iter) {
+    Pose curPoseA = startPoseA;
+    curPoseA.position = startPoseA.position + dir * t;
+
+    float dist = GJK_distance(shapeA, curPoseA, shapeB, poseB, ptA, ptB);
+
+    if (dist > 1e-4f) {
+      lastValidPtA = ptA;
+      lastValidPtB = ptB;
+      Vector3 diff = ptA - ptB;
+      if (diff.lengthSquare() > 1e-8f) {
+        lastValidNorm = diff.getNormalized();
+      }
+    }
+
+    if (dist <= kHitTolerance) {
+      outHit.hasHit = true;
+      outHit.distance = t;
+      outHit.fraction = (maxDistance > 0.0f) ? std::clamp(t / maxDistance, 0.0f, 1.0f) : 0.0f;
+      if (dist < 1e-4f) {
+        outHit.point = lastValidPtB;
+        outHit.normal = lastValidNorm;
+      } else {
+        outHit.point = ptB;
+        Vector3 diff = ptA - ptB;
+        outHit.normal = (diff.lengthSquare() > 1e-8f) ? diff.getNormalized() : -dir;
+      }
+      return true;
+    }
+
+    Vector3 toB = ptB - ptA;
+    float closingSpeed = 0.0f;
+    if (dist > 1e-6f) {
+      closingSpeed = dir.dot(toB) / dist;
+    }
+
+    float step = dist;
+    if (closingSpeed <= 0.0f) {
+      step = std::max(dist, 0.01f);
+    }
+
+    t += step;
+    if (t >= maxDistance) {
+      break;
+    }
+  }
+
+  return false;
+}
+
 } // namespace Baryon::collision

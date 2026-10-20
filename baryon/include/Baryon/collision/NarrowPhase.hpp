@@ -26,6 +26,7 @@
 
 #include <initializer_list>
 #include "Ray.hpp"
+#include "Sweep.hpp"
 
 /**
  * @file NarrowPhase.hpp
@@ -160,6 +161,22 @@ public:
      */
     static bool testOverlap(const CollisionShape& shapeA, const Pose& poseA,
                             const CollisionShape& shapeB, const Pose& poseB);
+
+    /**
+     * @brief İki şekil arasında geometrik süpürme (sweep / shape cast) testi yürütür.
+     * @param shapeA Süpürülen şekil.
+     * @param startPoseA Süpürülen şeklin başlangıç pozu.
+     * @param direction Süpürme yönü (birim vektör).
+     * @param maxDistance Maksimum süpürme mesafesi.
+     * @param shapeB Hedef şekil.
+     * @param poseB Hedef şeklin pozu.
+     * @param[out] outHit Çarpışma tespit edilirse doldurulacak süpürme verisi.
+     * @return Çarpışma tespit edildiyse true, aksi halde false.
+     */
+    static bool sweepShape(const CollisionShape& shapeA, const Pose& startPoseA, 
+                           const Vector3& direction, float maxDistance,
+                           const CollisionShape& shapeB, const Pose& poseB, 
+                           SweepHit& outHit);
 
     /**
      * @brief GJK sonrası iç içe geçme derinliğini ve ayrılma yönünü hesaplar (EPA Algoritması).

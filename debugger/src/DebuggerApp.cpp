@@ -210,7 +210,7 @@ void DebuggerApp::processInput(float dt) {
 }
 
 void DebuggerApp::updatePhysics(float dt) {
-    if ((mCurrentScene == SceneType::RaycastShowcase || mCurrentScene == SceneType::OverlapQueries) && mRaycastAutoSweep) {
+    if ((mCurrentScene == SceneType::RaycastShowcase || mCurrentScene == SceneType::OverlapQueries || mCurrentScene == SceneType::SweepQueries) && mRaycastAutoSweep) {
         mRaycastAngle += 25.0f * dt;
         if (mCurrentScene == SceneType::OverlapQueries) {
             if (mRaycastAngle > 180.0f) mRaycastAngle -= 360.0f;
@@ -315,6 +315,35 @@ void DebuggerApp::render3DView() {
         auto overlapped = mSimulator->overlapSphere(probePos, probeRadius);
         Vector3 probeColor = overlapped.empty() ? Vector3(0.2f, 0.8f, 1.0f) : Vector3(1.0f, 0.2f, 0.3f);
         mRenderer.drawWireSphere(Pose(probePos), probeRadius, probeColor);
+    }
+
+    // Canli Sekil Supurme (Sweep Showcase)
+    if (mCurrentScene == SceneType::SweepQueries && mMode == AppMode::LiveSimulation) {
+        float rad = mRaycastAngle * 3.14159265f / 180.0f;
+        Vector3 sweepOrigin(0.0f, 1.5f, -10.0f);
+        Vector3 sweepDir(std::sin(rad), 0.0f, std::cos(rad));
+        float sweepRadius = 0.5f;
+        float maxDist = 20.0f;
+
+        auto hit = mSimulator->sweepSphere(sweepOrigin, sweepRadius, sweepDir, maxDist);
+        Vector3 endPoint = sweepOrigin + sweepDir * maxDist;
+        Vector3 contactPos = sweepOrigin + sweepDir * hit.distance;
+
+        // Baslangic kuresi (Açık Mavi)
+        mRenderer.drawWireSphere(Pose(sweepOrigin), sweepRadius, Vector3(0.3f, 0.7f, 1.0f));
+
+        // Supurme yorungesi (Yesil / Gri)
+        Vector3 pathColor = hit.hasHit ? Vector3(0.0f, 1.0f, 0.8f) : Vector3(0.5f, 0.5f, 0.6f);
+        mRenderer.addLine(sweepOrigin, contactPos, pathColor);
+
+        if (hit.hasHit) {
+            // Temas anindaki supurulen kure (Turuncu / Sari)
+            mRenderer.drawWireSphere(Pose(contactPos), sweepRadius, Vector3(1.0f, 0.6f, 0.1f));
+            // Carpisma yuzey noktasi ve dikmesi (Yesil ok)
+            mRenderer.drawContactPoint(hit.point, hit.normal, 0.0f, 10.0f);
+        } else {
+            mRenderer.addLine(contactPos, endPoint, Vector3(0.3f, 0.3f, 0.4f), 0.5f);
+        }
     }
 
     mRenderer.endFrame();

@@ -440,6 +440,125 @@ std::vector<Body> Simulator::overlapBoxBodies(const Vector3& center, const Vecto
 	return bodies;
 }
 
+collision::SweepHit Simulator::sweepShape(const collision::CollisionShape& shape, const Pose& startPose, 
+                                          const Vector3& direction, float maxDistance, uint32_t layerMask) const {
+	collision::SweepHit bestHit;
+	bestHit.hasHit = false;
+	bestHit.distance = maxDistance;
+	bestHit.fraction = 1.0f;
+	bestHit.entity = ecs::Entity{0};
+
+	if (maxDistance <= 0.0f || direction.lengthSquare() < 1e-12f || layerMask == 0) {
+		return bestHit;
+	}
+
+	Vector3 dir = direction.getNormalized();
+
+	collision::AABB localAABB = shape.computeLocalAABB();
+	Vector3 minB = localAABB.minBounds;
+	Vector3 maxB = localAABB.maxBounds;
+	Vector3 corners[8] = {
+		Vector3(minB.x, minB.y, minB.z), Vector3(maxB.x, minB.y, minB.z),
+		Vector3(minB.x, maxB.y, minB.z), Vector3(maxB.x, maxB.y, minB.z),
+		Vector3(minB.x, minB.y, maxB.z), Vector3(maxB.x, minB.y, maxB.z),
+		Vector3(minB.x, maxB.y, maxB.z), Vector3(maxB.x, maxB.y, maxB.z)
+	};
+	Vector3 startMin(1e10f, 1e10f, 1e10f);
+	Vector3 startMax(-1e10f, -1e10f, -1e10f);
+	Vector3 endMin(1e10f, 1e10f, 1e10f);
+	Vector3 endMax(-1e10f, -1e10f, -1e10f);
+
+	Vector3 endPos = startPose.position + dir * maxDistance;
+
+	for (const auto& c : corners) {
+		Vector3 wcStart = startPose.position + (startPose.orientation * c);
+		startMin.x = std::min(startMin.x, wcStart.x);
+		startMin.y = std::min(startMin.y, wcStart.y);
+		startMin.z = std::min(startMin.z, wcStart.z);
+		startMax.x = std::max(startMax.x, wcStart.x);
+		startMax.y = std::max(startMax.y, wcStart.y);
+		startMax.z = std::max(startMax.z, wcStart.z);
+
+		Vector3 wcEnd = endPos + (startPose.orientation * c);
+		endMin.x = std::min(endMin.x, wcEnd.x);
+		endMin.y = std::min(endMin.y, wcEnd.y);
+		endMin.z = std::min(endMin.z, wcEnd.z);
+		endMax.x = std::max(endMax.x, wcEnd.x);
+		endMax.y = std::max(endMax.y, wcEnd.y);
+		endMax.z = std::max(endMax.z, wcEnd.z);
+	}
+
+	Vector3 sweptMin(
+		std::min(startMin.x, endMin.x) - 0.05f,
+		std::min(startMin.y, endMin.y) - 0.05f,
+		std::min(startMin.z, endMin.z) - 0.05f
+	);
+	Vector3 sweptMax(
+		std::max(startMax.x, endMax.x) + 0.05f,
+		std::max(startMax.y, endMax.y) + 0.05f,
+		std::max(startMax.z, endMax.z) + 0.05f
+	);
+	collision::AABB sweptQueryAABB(sweptMin, sweptMax);
+
+	float closestDistance = maxDistance;
+
+	mSpatialPartitioning.getTree().query(sweptQueryAABB, [&](ecs::Entity candidate) {
+		if (!mRegistry.hasComponent<Pose>(candidate) || !mRegistry.hasComponent<ecs::ColliderData>(candidate)) {
+			return;
+		}
+
+		const auto& candColl = mRegistry.getComponent<ecs::ColliderData>(candidate);
+		if ((candColl.layer & layerMask) == 0) {
+			return;
+		}
+
+		const auto& candPose = mRegistry.getComponent<Pose>(candidate);
+		collision::SweepHit candidateHit;
+		if (collision::NarrowPhase::sweepShape(shape, startPose, dir, closestDistance, candColl.shape, candPose, candidateHit)) {
+			if (candidateHit.distance < closestDistance) {
+				closestDistance = candidateHit.distance;
+				candidateHit.entity = candidate;
+				bestHit = candidateHit;
+			}
+		}
+	});
+
+	return bestHit;
+}
+
+collision::SweepHit Simulator::sweepSphere(const Vector3& center, float radius, const Vector3& direction, float maxDistance, uint32_t layerMask) const {
+	if (radius <= 0.0f) {
+		collision::SweepHit hit;
+		hit.distance = maxDistance;
+		hit.fraction = 1.0f;
+		return hit;
+	}
+	collision::CollisionShape sphereShape{collision::SphereShape(radius)};
+	return sweepShape(sphereShape, Pose(center), direction, maxDistance, layerMask);
+}
+
+collision::SweepHit Simulator::sweepBox(const Vector3& center, const Vector3& halfExtents, const Quaternion& orientation, const Vector3& direction, float maxDistance, uint32_t layerMask) const {
+	if (halfExtents.x <= 0.0f && halfExtents.y <= 0.0f && halfExtents.z <= 0.0f) {
+		collision::SweepHit hit;
+		hit.distance = maxDistance;
+		hit.fraction = 1.0f;
+		return hit;
+	}
+	collision::CollisionShape boxShape{collision::BoxShape(halfExtents)};
+	return sweepShape(boxShape, Pose(center, orientation), direction, maxDistance, layerMask);
+}
+
+collision::SweepHit Simulator::sweepCapsule(const Vector3& center, float radius, float height, const Quaternion& orientation, const Vector3& direction, float maxDistance, uint32_t layerMask) const {
+	if (radius <= 0.0f || height <= 0.0f) {
+		collision::SweepHit hit;
+		hit.distance = maxDistance;
+		hit.fraction = 1.0f;
+		return hit;
+	}
+	collision::CollisionShape capsuleShape{collision::CapsuleShape(radius, height)};
+	return sweepShape(capsuleShape, Pose(center, orientation), direction, maxDistance, layerMask);
+}
+
 void Simulator::printAABBs() {
 	std::cout << "\n--- Baryon Physics AABB Dump ---\n";
 	const auto &colliderPool = mRegistry.getComponentPool<ecs::ColliderData>();
