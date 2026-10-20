@@ -250,5 +250,73 @@ int main() {
         CHECK_MSG(info.penetration > 0.0f, "Identical coincident boxes penetration > 0 olmali");
     }
 
+    // 13. Faz 2.4: Zero and extremely small cylinder/cone dimensions
+    {
+        Pose pA{Vector3(0, 0, 0), Quaternion::identity()};
+        Pose pB{Vector3(0, 0.5f, 0), Quaternion::identity()};
+
+        CollisionShape zeroCyl{CylinderShape{0.0f, 0.0f}};
+        CollisionShape tinyCone{ConeShape{1e-7f, 1e-7f}};
+
+        AABB aabbCyl = zeroCyl.computeLocalAABB();
+        AABB aabbCone = tinyCone.computeLocalAABB();
+        CHECK(isFiniteVec(aabbCyl.minBounds) && isFiniteVec(aabbCyl.maxBounds));
+        CHECK(isFiniteVec(aabbCone.minBounds) && isFiniteVec(aabbCone.maxBounds));
+
+        Simplex simplex;
+        (void)NarrowPhase::GJK(zeroCyl, pA, tinyCone, pB, simplex);
+
+        Ray ray(Vector3(0, 2.0f, 0), Vector3(0, -1.0f, 0), 10.0f);
+        RaycastHit hitCyl, hitCone;
+        (void)NarrowPhase::raycast(zeroCyl, pA, ray, hitCyl);
+        (void)NarrowPhase::raycast(tinyCone, pB, ray, hitCone);
+    }
+
+    // 14. Faz 2.4: Extremely large dimensions (1e6)
+    {
+        Pose pA{Vector3(0, 0, 0), Quaternion::identity()};
+        Pose pB{Vector3(0, 100.0f, 0), Quaternion::identity()};
+
+        CollisionShape hugeCyl{CylinderShape{1e6f, 1e6f}};
+        CollisionShape hugeCone{ConeShape{1e6f, 1e6f}};
+
+        AABB aabbCyl = hugeCyl.computeLocalAABB();
+        AABB aabbCone = hugeCone.computeLocalAABB();
+        CHECK(isFiniteVec(aabbCyl.minBounds) && isFiniteVec(aabbCyl.maxBounds));
+        CHECK(isFiniteVec(aabbCone.minBounds) && isFiniteVec(aabbCone.maxBounds));
+
+        Simplex simplex;
+        bool gjkHit = NarrowPhase::GJK(hugeCyl, pA, hugeCone, pB, simplex);
+        if (gjkHit) {
+            CollisionInfo info = NarrowPhase::EPA(simplex, hugeCyl, pA, hugeCone, pB);
+            CHECK(isFiniteVec(info.normal));
+        }
+    }
+
+    // 15. Faz 2.4: NaN inputs and Simulator stability
+    {
+        Simulator sim;
+        std::vector<float> nanHeights = {NAN, 0.0f, INFINITY, -INFINITY};
+        HeightfieldShape hf(2, 2, 1.0f, nanHeights, true);
+        Body terrain = sim.createBody(Pose(Vector3(0, 0, 0)), CollisionShape{hf});
+        terrain.setBodyType(Core::BodyType::Static);
+
+        Body cyl = sim.createBody(Pose(Vector3(0, 1.0f, 0)), CollisionShape{CylinderShape{0.5f, 0.5f}});
+        cyl.setBodyType(Core::BodyType::Dynamic);
+
+        Body cone = sim.createBody(Pose(Vector3(1.0f, 1.0f, 0)), CollisionShape{ConeShape{0.5f, 1.0f}});
+        cone.setBodyType(Core::BodyType::Dynamic);
+
+        // Simulator stepping should never throw or produce NaN positions
+        for (int i = 0; i < 10; ++i) {
+            sim.step(1.0f / 60.0f);
+        }
+
+        Vector3 posCyl = cyl.getPosition().value();
+        Vector3 posCone = cone.getPosition().value();
+        CHECK(isFiniteVec(posCyl));
+        CHECK(isFiniteVec(posCone));
+    }
+
     reportAndExit();
 }
