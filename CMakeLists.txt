@@ -189,6 +189,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CompoundShapeTest.cpp")
     add_test(NAME CompoundShapeTest COMMAND CompoundShapeTest)
 endif()
 
+# Overlap Query Test (Faz 1.2)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/OverlapQueryTest.cpp")
+    add_executable(OverlapQueryTest tests/OverlapQueryTest.cpp)
+    target_link_libraries(OverlapQueryTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME OverlapQueryTest COMMAND OverlapQueryTest)
+endif()
+
 # Headless Physics Harness Library & Executable (Faz 0.1)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
     add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)

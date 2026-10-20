@@ -210,9 +210,13 @@ void DebuggerApp::processInput(float dt) {
 }
 
 void DebuggerApp::updatePhysics(float dt) {
-    if (mCurrentScene == SceneType::RaycastShowcase && mRaycastAutoSweep) {
+    if ((mCurrentScene == SceneType::RaycastShowcase || mCurrentScene == SceneType::OverlapQueries) && mRaycastAutoSweep) {
         mRaycastAngle += 25.0f * dt;
-        if (mRaycastAngle > 35.0f) mRaycastAngle = -35.0f;
+        if (mCurrentScene == SceneType::OverlapQueries) {
+            if (mRaycastAngle > 180.0f) mRaycastAngle -= 360.0f;
+        } else {
+            if (mRaycastAngle > 35.0f) mRaycastAngle = -35.0f;
+        }
     }
 
     if (mMode == AppMode::LiveSimulation) {
@@ -301,6 +305,16 @@ void DebuggerApp::render3DView() {
         Vector3 endPoint = rayOrigin + rayDir * maxDist;
         Vector3 hitPt = rayOrigin + rayDir * hit.distance;
         mRenderer.drawRaycast(rayOrigin, endPoint, hit.hasHit, hitPt, hit.normal);
+    }
+
+    // Canli Hacim Sorgulama (Overlap Showcase)
+    if (mCurrentScene == SceneType::OverlapQueries && mMode == AppMode::LiveSimulation) {
+        float rad = mRaycastAngle * 3.14159265f / 180.0f;
+        Vector3 probePos(std::sin(rad) * 6.0f, 1.5f, std::cos(rad) * 6.0f);
+        float probeRadius = 1.8f;
+        auto overlapped = mSimulator->overlapSphere(probePos, probeRadius);
+        Vector3 probeColor = overlapped.empty() ? Vector3(0.2f, 0.8f, 1.0f) : Vector3(1.0f, 0.2f, 0.3f);
+        mRenderer.drawWireSphere(Pose(probePos), probeRadius, probeColor);
     }
 
     mRenderer.endFrame();
@@ -427,6 +441,11 @@ void DebuggerApp::renderControlPanel() {
             ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.9f, 1.0f), "3D CANLI LAZER ISIN KONTROLLERI:");
             ImGui::Checkbox("Otomatik Taramayi Baslat/Durdur", &mRaycastAutoSweep);
             ImGui::SliderFloat("Lazer Acisi", &mRaycastAngle, -35.0f, 35.0f, "%.1f deg");
+        } else if (mCurrentScene == SceneType::OverlapQueries) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.9f, 1.0f), "HACIM SORGULAMA KONTROLLERI:");
+            ImGui::Checkbox("Otomatik Hacim Taramasi", &mRaycastAutoSweep);
+            ImGui::SliderFloat("Tarama Pozisyon Acisi", &mRaycastAngle, -180.0f, 180.0f, "%.1f deg");
         } else if (mCurrentScene == SceneType::RevoluteHinge) {
             ImGui::Separator();
             ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "MENTESE KAPI KONTROLLERI:");

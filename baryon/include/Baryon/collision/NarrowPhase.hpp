@@ -151,6 +151,17 @@ public:
                         const Ray& ray, RaycastHit& hit);
 
     /**
+     * @brief İki çarpışma şeklinin kesişip kesişmediğini belirleyen dar faz fonksiyonu.
+     * @param shapeA Birinci çarpışma şekli.
+     * @param poseA Birinci şeklin dünya konumu ve yönelimi.
+     * @param shapeB İkinci çarpışma şekli.
+     * @param poseB İkinci şeklin dünya konumu ve yönelimi.
+     * @return Şekiller kesişiyorsa true, aksi halde false.
+     */
+    static bool testOverlap(const CollisionShape& shapeA, const Pose& poseA,
+                            const CollisionShape& shapeB, const Pose& poseB);
+
+    /**
      * @brief GJK sonrası iç içe geçme derinliğini ve ayrılma yönünü hesaplar (EPA Algoritması).
      * @details GJK algoritması sadece "çarpışma var" diyebilir. EPA ise bu çarpışmayı 
      *          çözebilmek (cisimleri ayırmak) için gereken fiziksel verileri üretir.

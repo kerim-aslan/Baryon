@@ -347,6 +347,99 @@ std::vector<collision::ContactManifold> Simulator::getContactsForEntity(ecs::Ent
 	return result;
 }
 
+std::vector<ecs::Entity> Simulator::overlapShape(const collision::CollisionShape& shape, const Pose& pose, uint32_t layerMask) const {
+	std::vector<ecs::Entity> results;
+	if (layerMask == 0) {
+		return results;
+	}
+
+	collision::AABB localAABB = shape.computeLocalAABB();
+	Vector3 minB = localAABB.minBounds;
+	Vector3 maxB = localAABB.maxBounds;
+	Vector3 corners[8] = {
+		Vector3(minB.x, minB.y, minB.z), Vector3(maxB.x, minB.y, minB.z),
+		Vector3(minB.x, maxB.y, minB.z), Vector3(maxB.x, maxB.y, minB.z),
+		Vector3(minB.x, minB.y, maxB.z), Vector3(maxB.x, minB.y, maxB.z),
+		Vector3(minB.x, maxB.y, maxB.z), Vector3(maxB.x, maxB.y, maxB.z)
+	};
+	Vector3 outMin(1e10f, 1e10f, 1e10f);
+	Vector3 outMax(-1e10f, -1e10f, -1e10f);
+	for (const auto& c : corners) {
+		Vector3 wc = pose.position + (pose.orientation * c);
+		outMin.x = std::min(outMin.x, wc.x);
+		outMin.y = std::min(outMin.y, wc.y);
+		outMin.z = std::min(outMin.z, wc.z);
+		outMax.x = std::max(outMax.x, wc.x);
+		outMax.y = std::max(outMax.y, wc.y);
+		outMax.z = std::max(outMax.z, wc.z);
+	}
+	collision::AABB queryAABB(outMin, outMax);
+
+	mSpatialPartitioning.getTree().query(queryAABB, [&](ecs::Entity candidate) {
+		if (!mRegistry.hasComponent<Pose>(candidate) || !mRegistry.hasComponent<ecs::ColliderData>(candidate)) {
+			return;
+		}
+
+		const auto& candColl = mRegistry.getComponent<ecs::ColliderData>(candidate);
+		if ((candColl.layer & layerMask) == 0) {
+			return;
+		}
+
+		const auto& candPose = mRegistry.getComponent<Pose>(candidate);
+		if (collision::NarrowPhase::testOverlap(shape, pose, candColl.shape, candPose)) {
+			results.push_back(candidate);
+		}
+	});
+
+	return results;
+}
+
+std::vector<ecs::Entity> Simulator::overlapSphere(const Vector3& center, float radius, uint32_t layerMask) const {
+	if (radius <= 0.0f) {
+		return {};
+	}
+	collision::CollisionShape sphereShape{collision::SphereShape(radius)};
+	return overlapShape(sphereShape, Pose(center), layerMask);
+}
+
+std::vector<ecs::Entity> Simulator::overlapBox(const Vector3& center, const Vector3& halfExtents, const Quaternion& orientation, uint32_t layerMask) const {
+	if (halfExtents.x <= 0.0f && halfExtents.y <= 0.0f && halfExtents.z <= 0.0f) {
+		return {};
+	}
+	collision::CollisionShape boxShape{collision::BoxShape(halfExtents)};
+	return overlapShape(boxShape, Pose(center, orientation), layerMask);
+}
+
+std::vector<Body> Simulator::overlapShapeBodies(const collision::CollisionShape& shape, const Pose& pose, uint32_t layerMask) {
+	auto entities = overlapShape(shape, pose, layerMask);
+	std::vector<Body> bodies;
+	bodies.reserve(entities.size());
+	for (auto e : entities) {
+		bodies.emplace_back(e, mRegistry);
+	}
+	return bodies;
+}
+
+std::vector<Body> Simulator::overlapSphereBodies(const Vector3& center, float radius, uint32_t layerMask) {
+	auto entities = overlapSphere(center, radius, layerMask);
+	std::vector<Body> bodies;
+	bodies.reserve(entities.size());
+	for (auto e : entities) {
+		bodies.emplace_back(e, mRegistry);
+	}
+	return bodies;
+}
+
+std::vector<Body> Simulator::overlapBoxBodies(const Vector3& center, const Vector3& halfExtents, const Quaternion& orientation, uint32_t layerMask) {
+	auto entities = overlapBox(center, halfExtents, orientation, layerMask);
+	std::vector<Body> bodies;
+	bodies.reserve(entities.size());
+	for (auto e : entities) {
+		bodies.emplace_back(e, mRegistry);
+	}
+	return bodies;
+}
+
 void Simulator::printAABBs() {
 	std::cout << "\n--- Baryon Physics AABB Dump ---\n";
 	const auto &colliderPool = mRegistry.getComponentPool<ecs::ColliderData>();

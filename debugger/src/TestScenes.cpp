@@ -11,16 +11,17 @@ namespace Baryon::Debugger {
 const char* TestScenes::getSceneName(SceneType type) {
     switch (type) {
         case SceneType::CompoundShapes: return "0. Bilesik Sekiller & Eylemsizlik (Compound Shapes)";
-        case SceneType::TriggerSensors: return "1. Tetikleyici & Hayalet Alan (Trigger Zones)";
-        case SceneType::CollisionFiltering: return "2. Katman Filtreleme (Bitmask: Kirmizi vs Mavi)";
-        case SceneType::RevoluteHinge: return "3. Mentese Mafsali & Tork (Revolute Joint)";
-        case SceneType::RollingResistance: return "4. Yuvarlanma Direnci & Durma Testi";
-        case SceneType::RaycastShowcase: return "5. Lazer Isini Kesisimi (Raycast)";
-        case SceneType::TunnelingStress: return "6. Yuksek Hizli Tunelleme Testi (CCD)";
-        case SceneType::BoxStacking: return "7. Kutu Yigini Kararliligi (10 Kutu)";
-        case SceneType::NewtonsCradle: return "8. Esnek Carpisma & Momentum (Newton Besigi)";
-        case SceneType::JointPendulum: return "9. Eklem & Mesafe Kisiti Zinciri";
-        case SceneType::Sandbox: return "10. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::OverlapQueries: return "1. Hacim & Cakisma Sorgulari (Overlap Queries)";
+        case SceneType::TriggerSensors: return "2. Tetikleyici & Hayalet Alan (Trigger Zones)";
+        case SceneType::CollisionFiltering: return "3. Katman Filtreleme (Bitmask: Kirmizi vs Mavi)";
+        case SceneType::RevoluteHinge: return "4. Mentese Mafsali & Tork (Revolute Joint)";
+        case SceneType::RollingResistance: return "5. Yuvarlanma Direnci & Durma Testi";
+        case SceneType::RaycastShowcase: return "6. Lazer Isini Kesisimi (Raycast)";
+        case SceneType::TunnelingStress: return "7. Yuksek Hizli Tunelleme Testi (CCD)";
+        case SceneType::BoxStacking: return "8. Kutu Yigini Kararliligi (10 Kutu)";
+        case SceneType::NewtonsCradle: return "9. Esnek Carpisma & Momentum (Newton Besigi)";
+        case SceneType::JointPendulum: return "10. Eklem & Mesafe Kisiti Zinciri";
+        case SceneType::Sandbox: return "11. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -29,6 +30,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
     switch (type) {
         case SceneType::CompoundShapes:
             return "Birden fazla alt geometriyi (kure, kutu) tek bir rijit cisimde birlestirir. Agirlik merkezi ve Huygens-Steiner paralel eksen eylemsizlik tensoru ile dambil, L-blok ve masa gibi karmasik sekilleri simule eder.";
+        case SceneType::OverlapQueries:
+            return "overlapSphere, overlapBox ve overlapShape fonksiyonlarini test eder. 3B uzayda donen tarayici hacim (kure/OBB) hedeflere degdiginde canli olarak algilanir ve tel kafes rengi mavi/kirmizi olarak degisir.";
         case SceneType::TriggerSensors:
             return "Tetikleyicileri test eder. Mor renkli alandan kure sifir sekme ve sifir direnc ile gecerken, sagdaki duvara carpan kure geri seker. Tanı panelinde [TETIKLEYICI GIRIS/CIKIS] loglanir.";
         case SceneType::CollisionFiltering:
@@ -66,6 +69,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
 
     switch (type) {
         case SceneType::CompoundShapes: setupCompoundShapes(sim); break;
+        case SceneType::OverlapQueries: setupOverlapQueries(sim); break;
         case SceneType::TriggerSensors: setupTriggerSensors(sim); break;
         case SceneType::CollisionFiltering: setupCollisionFiltering(sim); break;
         case SceneType::RevoluteHinge: setupRevoluteHinge(sim); break;
@@ -454,6 +458,35 @@ void TestScenes::setupCompoundShapes(Simulator& sim) {
         (void)b.setMass(5.0f);
         (void)b.setMaterial(0.4f, 0.1f);
     }
+}
+
+void TestScenes::setupOverlapQueries(Simulator& sim) {
+    // 1. Statik Zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(25.0f, 0.5f, 25.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // Dairesel duzende hedefler (Kure, Kutu, Kapsul, Dambil)
+    // 2. Kure (0 deg: X=6, Z=0)
+    Body s = sim.createBody(Pose(Vector3(6.0f, 1.5f, 0.0f)), collision::CollisionShape{collision::SphereShape(1.0f)});
+    s.setBodyType(Core::BodyType::Static);
+
+    // 3. Kutu (90 deg: X=0, Z=6)
+    Body b = sim.createBody(Pose(Vector3(0.0f, 1.5f, 6.0f)), collision::CollisionShape{collision::BoxShape(Vector3(1.0f, 1.0f, 1.0f))});
+    b.setBodyType(Core::BodyType::Static);
+
+    // 4. Kapsul (180 deg: X=-6, Z=0)
+    Body cap = sim.createBody(Pose(Vector3(-6.0f, 1.5f, 0.0f)), collision::CollisionShape{collision::CapsuleShape(0.7f, 1.5f)});
+    cap.setBodyType(Core::BodyType::Static);
+
+    // 5. Dambil (270 deg: X=0, Z=-6)
+    std::vector<collision::CompoundChild> children;
+    children.emplace_back(collision::CollisionShape{collision::SphereShape(0.6f)}, Pose(Vector3(-1.2f, 0.0f, 0.0f)));
+    children.emplace_back(collision::CollisionShape{collision::SphereShape(0.6f)}, Pose(Vector3(1.2f, 0.0f, 0.0f)));
+    children.emplace_back(collision::CollisionShape{collision::BoxShape(Vector3(0.8f, 0.15f, 0.15f))}, Pose(Vector3(0.0f, 0.0f, 0.0f)));
+    collision::CompoundShape dumbbell(std::move(children));
+    Body damb = sim.createBody(Pose(Vector3(0.0f, 1.5f, -6.0f)), collision::CollisionShape{dumbbell});
+    damb.setBodyType(Core::BodyType::Static);
 }
 
 } // namespace Baryon::Debugger

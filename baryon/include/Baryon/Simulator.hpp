@@ -142,6 +142,60 @@ public:
      */
     std::vector<collision::ContactManifold> getContactsForEntity(ecs::Entity entity) const;
 
+    /// @name Hacim ve Çakışma Sorguları (Overlap Queries)
+    /// @{
+
+    /**
+     * @brief Belirtilen küre hacmi içindeki tüm varlıkları sorgular.
+     * @param center Kürenin dünya koordinatlarındaki merkezi.
+     * @param radius Kürenin yarıçapı.
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Kesişen varlıkların (Entity) listesi.
+     */
+    [[nodiscard]] std::vector<ecs::Entity> overlapSphere(const Vector3& center, float radius, uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
+     * @brief Belirtilen yönelimli kutu hacmi içindeki tüm varlıkları sorgular.
+     * @param center Kutunun dünya koordinatlarındaki merkezi.
+     * @param halfExtents Kutunun yarım boyutları (x, y, z).
+     * @param orientation Kutunun dönüş yönelimi (varsayılan: birim kuaterniyon).
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Kesişen varlıkların (Entity) listesi.
+     */
+    [[nodiscard]] std::vector<ecs::Entity> overlapBox(const Vector3& center, const Vector3& halfExtents, 
+                                                      const Quaternion& orientation = Quaternion(), 
+                                                      uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
+     * @brief Herhangi bir çarpışma şekli ile hacim çakışma sorgusu yapar.
+     * @param shape Sorgulanacak çarpışma geometrisi (Küre, Kutu, Kapsül, CompoundShape vb.).
+     * @param pose Şeklin dünya konumu ve yönelimi.
+     * @param layerMask Filtrelenecek katman bitmaskesi (varsayılan: 0xFFFFFFFF).
+     * @return Kesişen varlıkların (Entity) listesi.
+     */
+    [[nodiscard]] std::vector<ecs::Entity> overlapShape(const collision::CollisionShape& shape, const Pose& pose, 
+                                                        uint32_t layerMask = 0xFFFFFFFF) const;
+
+    /**
+     * @brief overlapSphere sorgusunu Body listesi olarak döndürür.
+     */
+    [[nodiscard]] std::vector<Body> overlapSphereBodies(const Vector3& center, float radius, uint32_t layerMask = 0xFFFFFFFF);
+
+    /**
+     * @brief overlapBox sorgusunu Body listesi olarak döndürür.
+     */
+    [[nodiscard]] std::vector<Body> overlapBoxBodies(const Vector3& center, const Vector3& halfExtents, 
+                                                     const Quaternion& orientation = Quaternion(), 
+                                                     uint32_t layerMask = 0xFFFFFFFF);
+
+    /**
+     * @brief overlapShape sorgusunu Body listesi olarak döndürür.
+     */
+    [[nodiscard]] std::vector<Body> overlapShapeBodies(const collision::CollisionShape& shape, const Pose& pose, 
+                                                       uint32_t layerMask = 0xFFFFFFFF);
+
+    /// @}
+
     /// @name Varlık ve Cisim Yönetimi
     /// @{
 

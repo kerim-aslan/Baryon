@@ -1627,4 +1627,103 @@ CollisionInfo NarrowPhase::EPA(const Simplex &simplex,
                                transformB);
 }
 
+bool NarrowPhase::testOverlap(const CollisionShape &shapeA, const Pose &poseA,
+                              const CollisionShape &shapeB, const Pose &poseB) {
+  // 1. CompoundShape checks
+  if (std::holds_alternative<CompoundShape>(shapeA.getVariant())) {
+    const auto &compA = std::get<CompoundShape>(shapeA.getVariant());
+    for (const auto &child : compA.children) {
+      Pose childPose;
+      childPose.position = poseA.position + (poseA.orientation * child.localPose.position);
+      childPose.orientation = poseA.orientation * child.localPose.orientation;
+      if (testOverlap(child.getShape(), childPose, shapeB, poseB)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (std::holds_alternative<CompoundShape>(shapeB.getVariant())) {
+    const auto &compB = std::get<CompoundShape>(shapeB.getVariant());
+    for (const auto &child : compB.children) {
+      Pose childPose;
+      childPose.position = poseB.position + (poseB.orientation * child.localPose.position);
+      childPose.orientation = poseB.orientation * child.localPose.orientation;
+      if (testOverlap(shapeA, poseA, child.getShape(), childPose)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 2. Leaf shapes AABB preliminary test
+  auto transformAabb = [](const AABB &local, const Pose &pose) -> AABB {
+    Vector3 minB = local.minBounds;
+    Vector3 maxB = local.maxBounds;
+    Vector3 corners[8] = {
+        Vector3(minB.x, minB.y, minB.z), Vector3(maxB.x, minB.y, minB.z),
+        Vector3(minB.x, maxB.y, minB.z), Vector3(maxB.x, maxB.y, minB.z),
+        Vector3(minB.x, minB.y, maxB.z), Vector3(maxB.x, minB.y, maxB.z),
+        Vector3(minB.x, maxB.y, maxB.z), Vector3(maxB.x, maxB.y, maxB.z)
+    };
+    Vector3 outMin(1e10f, 1e10f, 1e10f);
+    Vector3 outMax(-1e10f, -1e10f, -1e10f);
+    for (const auto &c : corners) {
+      Vector3 wc = pose.position + (pose.orientation * c);
+      outMin.x = std::min(outMin.x, wc.x);
+      outMin.y = std::min(outMin.y, wc.y);
+      outMin.z = std::min(outMin.z, wc.z);
+      outMax.x = std::max(outMax.x, wc.x);
+      outMax.y = std::max(outMax.y, wc.y);
+      outMax.z = std::max(outMax.z, wc.z);
+    }
+    return AABB(outMin, outMax);
+  };
+
+  AABB aabbA = transformAabb(shapeA.computeLocalAABB(), poseA);
+  AABB aabbB = transformAabb(shapeB.computeLocalAABB(), poseB);
+  if (!aabbA.testCollision(aabbB)) {
+    return false;
+  }
+
+  // 3. Specialized Fast Narrowphase Tests
+  bool isSphereA = std::holds_alternative<SphereShape>(shapeA.getVariant());
+  bool isSphereB = std::holds_alternative<SphereShape>(shapeB.getVariant());
+  bool isBoxA = std::holds_alternative<BoxShape>(shapeA.getVariant());
+  bool isBoxB = std::holds_alternative<BoxShape>(shapeB.getVariant());
+
+  if (isSphereA && isSphereB) {
+    const auto &spA = std::get<SphereShape>(shapeA.getVariant());
+    const auto &spB = std::get<SphereShape>(shapeB.getVariant());
+    float distSq = (poseA.position - poseB.position).lengthSquare();
+    float rSum = spA.radius + spB.radius;
+    return distSq <= (rSum * rSum);
+  }
+
+  if (isSphereA && isBoxB) {
+    const auto &spA = std::get<SphereShape>(shapeA.getVariant());
+    const auto &bB = std::get<BoxShape>(shapeB.getVariant());
+    CollisionInfo info;
+    return testSphereBox(spA, poseA, bB, poseB, info);
+  }
+
+  if (isBoxA && isSphereB) {
+    const auto &bA = std::get<BoxShape>(shapeA.getVariant());
+    const auto &spB = std::get<SphereShape>(shapeB.getVariant());
+    CollisionInfo info;
+    return testSphereBox(spB, poseB, bA, poseA, info);
+  }
+
+  if (isBoxA && isBoxB) {
+    const auto &bA = std::get<BoxShape>(shapeA.getVariant());
+    const auto &bB = std::get<BoxShape>(shapeB.getVariant());
+    ContactManifold m(ecs::Entity{0}, ecs::Entity{0});
+    return testBoxBox(bA, poseA, bB, poseB, m);
+  }
+
+  // 4. General Convex GJK for all other shape combinations
+  Simplex simplex;
+  return GJK(shapeA, poseA, shapeB, poseB, simplex);
+}
+
 } // namespace Baryon::collision
