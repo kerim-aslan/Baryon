@@ -24,7 +24,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::JointPendulum: return "11. Eklem & Mesafe Kisiti Zinciri";
         case SceneType::FixedConstraintWeld: return "12. Sabit Kaynak Eklemi (Fixed / Weld Joint)";
         case SceneType::BallSocketPendulum: return "13. Kuresel Mafsal Sarkaci (Ball-Socket Pendulum)";
-        case SceneType::Sandbox: return "14. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::PrismaticElevator: return "14. Prizmatik Kayar Eklem & Asansor (Prismatic Slider)";
+        case SceneType::Sandbox: return "15. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -59,6 +60,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "6 serbestlik derecesinin (3 cizgisel + 3 acisal) kilitlendigi kaynak eklemini test eder. Yercekimi altinda cantilever konsol kiris ve bagli kutular tek bir kati govde gibi davranir.";
         case SceneType::BallSocketPendulum:
             return "3 cizgisel serbestlik derecesinin kilitlendigi, 3 acisal serbestligin serbest oldugu bilyeli mafsal (ball-socket) eklemini gosterir. Cift eklemli 3D kuresel sarkac ve serbest acisal eksende donen jiroskopik bloklar yer alir.";
+        case SceneType::PrismaticElevator:
+            return "1 serbest dogrusal kayma eksenine (1-DOF) izin verip 2 yanal ve 3 acisal ekseni kilitleyen prizmatik eklemi test eder. Dikey eksende alt/ust sinirli ve motorlu asansor kabini ile yatay rayda hareket eden mekanik kizak yer alir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -91,6 +94,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::JointPendulum: setupJointPendulum(sim); break;
         case SceneType::FixedConstraintWeld: setupFixedConstraintWeld(sim); break;
         case SceneType::BallSocketPendulum: setupBallSocketPendulum(sim); break;
+        case SceneType::PrismaticElevator: setupPrismaticElevator(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -628,6 +632,47 @@ void TestScenes::setupBallSocketPendulum(Simulator& sim) {
     (void)spinner.setMass(2.0f);
     sim.createBallSocketConstraint(pSpin, spinner, pivotSpin);
     (void)spinner.setAngularVelocity(Vector3(2.0f, 5.0f, 1.0f));
+}
+
+void TestScenes::setupPrismaticElevator(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(20.0f, 0.5f, 20.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. Dikey Kılavuz Ray ve Motorlu Asansör Kabini (Y Ekseni Boyunca 1-DOF Kayma)
+    Vector3 towerPos(0.0f, 5.0f, 0.0f);
+    Pose towerPose(towerPos);
+    Body tower = sim.createBody(towerPose, collision::CollisionShape{collision::BoxShape(Vector3(0.2f, 5.0f, 0.2f))});
+    tower.setBodyType(Core::BodyType::Static);
+
+    Vector3 cabinPos(0.8f, 1.0f, 0.0f);
+    Pose cabinPose(cabinPos);
+    Body cabin = sim.createBody(cabinPose, collision::CollisionShape{collision::BoxShape(Vector3(0.6f, 0.8f, 0.6f))});
+    cabin.setBodyType(Core::BodyType::Dynamic);
+    (void)cabin.setMass(10.0f);
+
+    sim.createPrismaticConstraint(tower, cabin, Vector3(0.8f, -4.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 1.0f, 0.0f));
+    sim.setPrismaticLimits(tower, -2.0f, 6.0f);
+    sim.setPrismaticMotor(tower, 2.0f, 400.0f);
+
+    // 2. Yatay Hidrolik Piston (X Ekseni Boyunca Kayma ve Sınır Testi)
+    Vector3 cylinderBasePos(-4.0f, 1.5f, 0.0f);
+    Pose cylPose(cylinderBasePos);
+    Body cylBase = sim.createBody(cylPose, collision::CollisionShape{collision::BoxShape(Vector3(0.5f, 0.5f, 0.5f))});
+    cylBase.setBodyType(Core::BodyType::Static);
+
+    Vector3 rodPos(-2.5f, 1.5f, 0.0f);
+    Pose rodPose(rodPos);
+    Body rod = sim.createBody(rodPose, collision::CollisionShape{collision::BoxShape(Vector3(1.0f, 0.3f, 0.3f))});
+    rod.setBodyType(Core::BodyType::Dynamic);
+    (void)rod.setMass(5.0f);
+
+    sim.createPrismaticConstraint(cylBase, rod, Vector3(1.5f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), Vector3(1.0f, 0.0f, 0.0f));
+    sim.setPrismaticLimits(cylBase, 0.0f, 3.0f);
+    sim.setPrismaticMotor(cylBase, 1.5f, 200.0f);
 }
 
 } // namespace Baryon::Debugger

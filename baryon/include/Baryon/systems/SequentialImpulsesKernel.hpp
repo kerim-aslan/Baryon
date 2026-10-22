@@ -23,6 +23,7 @@
 #include "Baryon/collision/ContactManifold.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/FixedConstraint.hpp"
+#include "Baryon/collision/PrismaticConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include <vector>
 #include <unordered_map>
@@ -83,6 +84,11 @@ private:
     void warmStartConstraint(collision::BallSocketConstraint& constraint);
     void solveConstraintVelocity(collision::BallSocketConstraint& constraint, float deltaTime);
     void solveConstraintPosition(collision::BallSocketConstraint& constraint, float deltaTime);
+
+    void prepareConstraint(collision::PrismaticConstraint& constraint, float deltaTime);
+    void warmStartConstraint(collision::PrismaticConstraint& constraint);
+    void solveConstraintVelocity(collision::PrismaticConstraint& constraint, float deltaTime);
+    void solveConstraintPosition(collision::PrismaticConstraint& constraint, float deltaTime);
 
     void collectIslandConstraints(
         const std::vector<ecs::Entity>& island,
@@ -163,6 +169,8 @@ public:
     void solveFixedConstraintPosition(collision::FixedConstraint& constraint, float deltaTime);
     void resolveBallSocketConstraint(collision::BallSocketConstraint& constraint, float deltaTime);
     void solveBallSocketConstraintPosition(collision::BallSocketConstraint& constraint, float deltaTime);
+    void resolvePrismaticConstraint(collision::PrismaticConstraint& constraint, float deltaTime);
+    void solvePrismaticConstraintPosition(collision::PrismaticConstraint& constraint, float deltaTime);
 };
 
 } // namespace Baryon::systems

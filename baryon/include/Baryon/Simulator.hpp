@@ -397,6 +397,57 @@ public:
         mRegistry.addComponent(a.getEntity(), constraint);
     }
 
+    /**
+     * @brief İki cisim arasına prizmatik (kayar) eklem bağlar.
+     * @param a Birinci cisim (ray/kılavuz gövdesi).
+     * @param b İkinci cisim (kayıcı gövde).
+     * @param anchorA A cismi yerel ankor noktası.
+     * @param anchorB B cismi yerel ankor noktası.
+     * @param axisA A cismi yerel koordinatlarındaki kayma ekseni.
+     */
+    void createPrismaticConstraint(Body& a, Body& b,
+                                   const Vector3& anchorA, const Vector3& anchorB,
+                                   const Vector3& axisA = Vector3(1.0f, 0.0f, 0.0f)) {
+        Quaternion relOrientation = Quaternion::identity();
+        if (mRegistry.hasComponent<Pose>(a.getEntity()) && mRegistry.hasComponent<Pose>(b.getEntity())) {
+            const auto& poseA = mRegistry.getComponent<Pose>(a.getEntity());
+            const auto& poseB = mRegistry.getComponent<Pose>(b.getEntity());
+            relOrientation = poseA.orientation.getInverse() * poseB.orientation;
+        }
+        collision::PrismaticConstraint constraint(a.getEntity(), b.getEntity(), anchorA, anchorB, axisA, relOrientation);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
+    /**
+     * @brief Prizmatik ekleme alt ve üst kayma sınırları (limit) atar.
+     * @param body Eklem bileşenine sahip cisim.
+     * @param lowerLimit Minimum kayma mesafesi (metre).
+     * @param upperLimit Maksimum kayma mesafesi (metre).
+     */
+    void setPrismaticLimits(Body& body, float lowerLimit, float upperLimit) {
+        if (mRegistry.hasComponent<collision::PrismaticConstraint>(body.getEntity())) {
+            auto& pc = mRegistry.getComponent<collision::PrismaticConstraint>(body.getEntity());
+            pc.enableLimits = true;
+            pc.lowerLimit = lowerLimit;
+            pc.upperLimit = upperLimit;
+        }
+    }
+
+    /**
+     * @brief Prizmatik ekleme doğrusal motor parametreleri atar.
+     * @param body Eklem bileşenine sahip cisim.
+     * @param motorSpeed Hedef doğrusal kayma hızı (m/s).
+     * @param maxMotorForce Maksimum motor kuvveti (Newton).
+     */
+    void setPrismaticMotor(Body& body, float motorSpeed, float maxMotorForce) {
+        if (mRegistry.hasComponent<collision::PrismaticConstraint>(body.getEntity())) {
+            auto& pc = mRegistry.getComponent<collision::PrismaticConstraint>(body.getEntity());
+            pc.enableMotor = true;
+            pc.motorSpeed = motorSpeed;
+            pc.maxMotorForce = maxMotorForce;
+        }
+    }
+
     /// @}
 
     /// @name Ayarlar ve Durum Kaydı
