@@ -255,6 +255,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/PrismaticConstraintTest.cpp")
     add_test(NAME PrismaticConstraintTest COMMAND PrismaticConstraintTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SpringConstraintTest.cpp")
+    add_executable(SpringConstraintTest tests/SpringConstraintTest.cpp)
+    target_link_libraries(SpringConstraintTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME SpringConstraintTest COMMAND SpringConstraintTest)
+endif()
+
 
 
 # Headless Physics Harness Library & Executable (Faz 0.1)

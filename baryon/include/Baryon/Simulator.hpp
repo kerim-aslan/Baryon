@@ -439,12 +439,62 @@ public:
      * @param motorSpeed Hedef doğrusal kayma hızı (m/s).
      * @param maxMotorForce Maksimum motor kuvveti (Newton).
      */
+    /**
+     * @brief Prizmatik ekleme doğrusal motor parametreleri atar.
+     * @param body Eklem bileşenine sahip cisim.
+     * @param motorSpeed Hedef doğrusal kayma hızı (m/s).
+     * @param maxMotorForce Maksimum motor kuvveti (Newton).
+     */
     void setPrismaticMotor(Body& body, float motorSpeed, float maxMotorForce) {
         if (mRegistry.hasComponent<collision::PrismaticConstraint>(body.getEntity())) {
             auto& pc = mRegistry.getComponent<collision::PrismaticConstraint>(body.getEntity());
             pc.enableMotor = true;
             pc.motorSpeed = motorSpeed;
             pc.maxMotorForce = maxMotorForce;
+        }
+    }
+
+    /**
+     * @brief İki cisim arasına sönümlü yay / elastik mesafe kısıtı bağlar.
+     * @param a Birinci cisim.
+     * @param b İkinci cisim.
+     * @param anchorA A cismi yerel ankor noktası.
+     * @param anchorB B cismi yerel ankor noktası.
+     * @param restLength Yayın gerilmesiz doğal serbest uzunluğu (metre).
+     * @param stiffness Yay sertlik katsayısı (k, N/m).
+     * @param damping Sönümleme katsayısı (c, N*s/m).
+     */
+    void createSpringConstraint(Body& a, Body& b,
+                                const Vector3& anchorA, const Vector3& anchorB,
+                                float restLength, float stiffness = 100.0f, float damping = 5.0f) {
+        collision::SpringConstraint constraint(a.getEntity(), b.getEntity(), anchorA, anchorB, restLength, stiffness, damping);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
+    /**
+     * @brief İki cismin kütle merkezleri arasına varsayılan serbest mesafeli yay bağlar.
+     * @param a Birinci cisim.
+     * @param b İkinci cisim.
+     * @param restLength Yayın gerilmesiz doğal serbest uzunluğu (metre).
+     * @param stiffness Yay sertlik katsayısı (k, N/m).
+     * @param damping Sönümleme katsayısı (c, N*s/m).
+     */
+    void createSpringConstraint(Body& a, Body& b,
+                                float restLength, float stiffness = 100.0f, float damping = 5.0f) {
+        createSpringConstraint(a, b, Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), restLength, stiffness, damping);
+    }
+
+    /**
+     * @brief Yay kısıtına doğal frekans (Hz) ve sönüm oranı (zeta) parametreleri atar.
+     * @param body Yay bileşenine sahip cisim.
+     * @param frequencyHz Titreşim frekansı (Hz).
+     * @param dampingRatio Sönümleme oranı (1.0: kritik sönüm).
+     * @param effectiveMass Etkin indirgenmiş kütle (kg).
+     */
+    void setSpringFrequencyAndDamping(Body& body, float frequencyHz, float dampingRatio, float effectiveMass = 1.0f) {
+        if (mRegistry.hasComponent<collision::SpringConstraint>(body.getEntity())) {
+            auto& sc = mRegistry.getComponent<collision::SpringConstraint>(body.getEntity());
+            sc.setFrequencyAndDamping(frequencyHz, dampingRatio, effectiveMass);
         }
     }
 

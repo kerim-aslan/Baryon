@@ -25,7 +25,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::FixedConstraintWeld: return "12. Sabit Kaynak Eklemi (Fixed / Weld Joint)";
         case SceneType::BallSocketPendulum: return "13. Kuresel Mafsal Sarkaci (Ball-Socket Pendulum)";
         case SceneType::PrismaticElevator: return "14. Prizmatik Kayar Eklem & Asansor (Prismatic Slider)";
-        case SceneType::Sandbox: return "15. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::SpringSuspension: return "15. Yayli Suspansiyon & Sonumlu Salinim (Spring Joint)";
+        case SceneType::Sandbox: return "16. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -62,6 +63,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "3 cizgisel serbestlik derecesinin kilitlendigi, 3 acisal serbestligin serbest oldugu bilyeli mafsal (ball-socket) eklemini gosterir. Cift eklemli 3D kuresel sarkac ve serbest acisal eksende donen jiroskopik bloklar yer alir.";
         case SceneType::PrismaticElevator:
             return "1 serbest dogrusal kayma eksenine (1-DOF) izin verip 2 yanal ve 3 acisal ekseni kilitleyen prizmatik eklemi test eder. Dikey eksende alt/ust sinirli ve motorlu asansor kabini ile yatay rayda hareket eden mekanik kizak yer alir.";
+        case SceneType::SpringSuspension:
+            return "Hooke Yasasi ve sonumlu harmonik salinici (Damped Harmonic Oscillator) modelini test eder. Sira sira farkli sonumleme oranlarina (sonumsuz zeta=0, kritik sonumlu zeta=1, zayif sonumlu zeta=0.15) sahip yayli kutleler ve 4 tekerlekli araba suspansiyon sasisi yer alir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -95,6 +98,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::FixedConstraintWeld: setupFixedConstraintWeld(sim); break;
         case SceneType::BallSocketPendulum: setupBallSocketPendulum(sim); break;
         case SceneType::PrismaticElevator: setupPrismaticElevator(sim); break;
+        case SceneType::SpringSuspension: setupSpringSuspension(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -673,6 +677,60 @@ void TestScenes::setupPrismaticElevator(Simulator& sim) {
     sim.createPrismaticConstraint(cylBase, rod, Vector3(1.5f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), Vector3(1.0f, 0.0f, 0.0f));
     sim.setPrismaticLimits(cylBase, 0.0f, 3.0f);
     sim.setPrismaticMotor(cylBase, 1.5f, 200.0f);
+}
+
+void TestScenes::setupSpringSuspension(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(20.0f, 0.5f, 20.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // Üst Statik Taşıyıcı Kiriş
+    Pose beamPose(Vector3(0.0f, 8.0f, 0.0f));
+    Body beam = sim.createBody(beamPose, collision::CollisionShape{collision::BoxShape(Vector3(6.0f, 0.2f, 0.5f))});
+    beam.setBodyType(Core::BodyType::Static);
+
+    // 1. Sol: Sönümsüz Harmonik Salınıcı (k = 60, c = 0)
+    Pose bob1Pose(Vector3(-4.0f, 4.0f, 0.0f));
+    Body bob1 = sim.createBody(bob1Pose, collision::CollisionShape{collision::SphereShape(0.4f)});
+    bob1.setBodyType(Core::BodyType::Dynamic);
+    (void)bob1.setMass(2.0f);
+    sim.createSpringConstraint(beam, bob1, Vector3(-4.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 0.0f);
+
+    // 2. Orta: Zayıf Sönümlü Salınıcı (k = 60, c = 2.0)
+    Pose bob2Pose(Vector3(0.0f, 4.0f, 0.0f));
+    Body bob2 = sim.createBody(bob2Pose, collision::CollisionShape{collision::SphereShape(0.4f)});
+    bob2.setBodyType(Core::BodyType::Dynamic);
+    (void)bob2.setMass(2.0f);
+    sim.createSpringConstraint(beam, bob2, Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 2.0f);
+
+    // 3. Sağ: Kritik Sönümlü Salınıcı (k = 60, c = 2*sqrt(m*k) = ~22)
+    Pose bob3Pose(Vector3(4.0f, 4.0f, 0.0f));
+    Body bob3 = sim.createBody(bob3Pose, collision::CollisionShape{collision::SphereShape(0.4f)});
+    bob3.setBodyType(Core::BodyType::Dynamic);
+    (void)bob3.setMass(2.0f);
+    sim.createSpringConstraint(beam, bob3, Vector3(4.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 22.0f);
+
+    // 4. Ön Taraf: 4 Ayaklı Yaylı Süspansiyon Platformu (Z = 4.0)
+    Pose chassisPose(Vector3(0.0f, 3.0f, 4.0f));
+    Body chassis = sim.createBody(chassisPose, collision::CollisionShape{collision::BoxShape(Vector3(1.5f, 0.2f, 1.0f))});
+    chassis.setBodyType(Core::BodyType::Dynamic);
+    (void)chassis.setMass(10.0f);
+
+    float cornerX[4] = {-1.2f, 1.2f, -1.2f, 1.2f};
+    float cornerZ[4] = {-0.8f, -0.8f, 0.8f, 0.8f};
+    for (int i = 0; i < 4; ++i) {
+        Pose postPose(Vector3(cornerX[i], 1.0f, 4.0f + cornerZ[i]));
+        Body post = sim.createBody(postPose, collision::CollisionShape{collision::BoxShape(Vector3(0.15f, 1.0f, 0.15f))});
+        post.setBodyType(Core::BodyType::Static);
+
+        sim.createSpringConstraint(post, chassis,
+                                   Vector3(0.0f, 1.0f, 0.0f),
+                                   Vector3(cornerX[i], 0.0f, cornerZ[i]),
+                                   1.5f, 120.0f, 15.0f);
+    }
 }
 
 } // namespace Baryon::Debugger

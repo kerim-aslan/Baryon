@@ -123,6 +123,17 @@ int main() {
 
 ---
 
+## 🔗 Eklem ve Kısıtlar (Joints & Constraints)
+
+Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimarisiyle aşağıdaki eklem tiplerini destekler:
+
+- **Sabit Kaynak Eklemi (`FixedConstraint`):** 6 serbestlik derecesini (3 ötelenme + 3 dönme) kilitler, kaynaklanmış katı cisimler oluşturur.
+- **Küre / Bilyeli Mafsal (`BallSocketConstraint`):** 3 ötelenme serbestliğini kilitler, 3 açısal serbestliği serbest bırakır (küresel sarkaç, jiroskopik mafsal).
+- **Prizmatik Kayar Eklem (`PrismaticConstraint`):** 1 serbest doğrusal kayma eksenine izin verir (1-DOF), eksen dışı kaymaları ve dönmeleri kilitler; alt/üst sınırlar ve doğrusal motor destekler.
+- **Sönümlü Yay / Yumuşak Mesafe (`SpringConstraint`):** Hooke Yasası ve sönümlü harmonik salınıcı modeline dayalı esnek mesafe kısıtı. Erin Catto soft-constraint (uyumluluk $\gamma$ ve bias $\beta$) formülasyonu ile yüksek sertlik ve büyük zaman adımlarında koşulsuz kararlı çalışır.
+
+---
+
 ## 📁 Dizin Yapısı
 
 - **`baryon/`**: Sıfır dış bağımlılığa sahip saf C++23 fizik motoru çekirdeği.

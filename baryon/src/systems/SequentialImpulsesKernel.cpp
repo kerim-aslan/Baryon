@@ -191,6 +191,70 @@ void SequentialImpulsesKernel::solveConstraintPosition(
   solvePrismaticConstraintPosition(constraint, deltaTime);
 }
 
+void SequentialImpulsesKernel::prepareConstraint(
+    collision::SpringConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  float k = std::max(0.0f, constraint.stiffness);
+  float c = std::max(0.0f, constraint.damping);
+  float denom = deltaTime * (c + deltaTime * k);
+  if (denom > 1e-7f) {
+    constraint.gamma = 1.0f / denom;
+    constraint.biasFactor = (deltaTime * k) / (c + deltaTime * k);
+  } else {
+    constraint.gamma = 0.0f;
+    constraint.biasFactor = 0.0f;
+  }
+}
+
+void SequentialImpulsesKernel::warmStartConstraint(
+    collision::SpringConstraint &constraint) {
+  if (std::abs(constraint.accumulatedImpulse) < 1e-6f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+  Vector3 delta = pB - pA;
+  float currentDist = delta.length();
+  if (currentDist < 1e-6f)
+    return;
+  Vector3 u = delta / currentDist;
+
+  Vector3 impulse = u * constraint.accumulatedImpulse;
+  motionB.linearVelocity += impulse * massB.inverseMass;
+  motionB.angularVelocity += massB.inverseInertiaTensor * rB.cross(impulse);
+  motionA.linearVelocity -= impulse * massA.inverseMass;
+  motionA.angularVelocity -= massA.inverseInertiaTensor * rA.cross(impulse);
+}
+
+void SequentialImpulsesKernel::solveConstraintVelocity(
+    collision::SpringConstraint &constraint, float deltaTime) {
+  resolveSpringConstraint(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::solveConstraintPosition(
+    collision::SpringConstraint &constraint, float deltaTime) {
+  solveSpringConstraintPosition(constraint, deltaTime);
+}
+
 void SequentialImpulsesKernel::collectIslandConstraints(
     const std::vector<ecs::Entity> &island,
     std::vector<ConstraintRef> &localConstraints) {
@@ -1554,6 +1618,70 @@ void SequentialImpulsesKernel::solvePrismaticConstraintPosition(
       }
     }
   }
+}
+
+void SequentialImpulsesKernel::resolveSpringConstraint(
+    collision::SpringConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+  Vector3 delta = pB - pA;
+  float currentDist = delta.length();
+  if (currentDist < 1e-6f)
+    return;
+  Vector3 u = delta / currentDist;
+
+  Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  Vector3 relVel = vB - vA;
+  float relSpeed = relVel.dot(u);
+
+  float positionError = currentDist - constraint.restLength;
+  float bias = (constraint.biasFactor / deltaTime) * positionError;
+
+  Vector3 rACrossU = rA.cross(u);
+  Vector3 rBCrossU = rB.cross(u);
+  float invMassSum = massA.inverseMass + massB.inverseMass +
+                     (massA.inverseInertiaTensor * rACrossU).dot(rACrossU) +
+                     (massB.inverseInertiaTensor * rBCrossU).dot(rBCrossU);
+  float effectiveMass = invMassSum + constraint.gamma;
+  if (effectiveMass < 1e-6f)
+    return;
+
+  float deltaLambda = -(relSpeed + bias + constraint.gamma * constraint.accumulatedImpulse) / effectiveMass;
+  constraint.accumulatedImpulse += deltaLambda;
+
+  Vector3 impulse = u * deltaLambda;
+  motionB.linearVelocity += impulse * massB.inverseMass;
+  motionB.angularVelocity += massB.inverseInertiaTensor * rB.cross(impulse);
+  motionA.linearVelocity -= impulse * massA.inverseMass;
+  motionA.angularVelocity -= massA.inverseInertiaTensor * rA.cross(impulse);
+}
+
+void SequentialImpulsesKernel::solveSpringConstraintPosition(
+    collision::SpringConstraint &constraint, float deltaTime) {
+  (void)constraint;
+  (void)deltaTime;
 }
 
 } // namespace Baryon::systems

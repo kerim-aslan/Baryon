@@ -25,6 +25,7 @@
 #include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/PrismaticConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
+#include "Baryon/collision/SpringConstraint.hpp"
 #include <vector>
 #include <unordered_map>
 
@@ -89,6 +90,14 @@ private:
     void warmStartConstraint(collision::PrismaticConstraint& constraint);
     void solveConstraintVelocity(collision::PrismaticConstraint& constraint, float deltaTime);
     void solveConstraintPosition(collision::PrismaticConstraint& constraint, float deltaTime);
+
+    void prepareConstraint(collision::SpringConstraint& constraint, float deltaTime);
+    void warmStartConstraint(collision::SpringConstraint& constraint);
+    void solveConstraintVelocity(collision::SpringConstraint& constraint, float deltaTime);
+    void solveConstraintPosition(collision::SpringConstraint& constraint, float deltaTime);
+
+    void resolveSpringConstraint(collision::SpringConstraint& constraint, float deltaTime);
+    void solveSpringConstraintPosition(collision::SpringConstraint& constraint, float deltaTime);
 
     void collectIslandConstraints(
         const std::vector<ecs::Entity>& island,
