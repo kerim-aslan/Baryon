@@ -365,6 +365,38 @@ public:
         mRegistry.addComponent(a.getEntity(), constraint);
     }
 
+    /**
+     * @brief İki cisim arasına bilyeli mafsal / küresel eklem (Ball-Socket) bağlar.
+     * @param a Birinci cisim.
+     * @param b İkinci cisim.
+     * @param anchorA Birinci cisim üzerindeki yerel ankor noktası.
+     * @param anchorB İkinci cisim üzerindeki yerel ankor noktası.
+     */
+    void createBallSocketConstraint(Body& a, Body& b,
+                                    const Vector3& anchorA, const Vector3& anchorB) {
+        collision::BallSocketConstraint constraint(a.getEntity(), b.getEntity(), anchorA, anchorB);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
+    /**
+     * @brief İki cisim arasına dünya uzayındaki ortak bir pivot noktası üzerinden bilyeli mafsal bağlar.
+     * @param a Birinci cisim.
+     * @param b İkinci cisim.
+     * @param worldPivot Dünya koordinatlarındaki ortak mafsal noktası.
+     */
+    void createBallSocketConstraint(Body& a, Body& b, const Vector3& worldPivot) {
+        Vector3 anchorA(0.0f, 0.0f, 0.0f);
+        Vector3 anchorB(0.0f, 0.0f, 0.0f);
+        if (mRegistry.hasComponent<Pose>(a.getEntity()) && mRegistry.hasComponent<Pose>(b.getEntity())) {
+            const auto& poseA = mRegistry.getComponent<Pose>(a.getEntity());
+            const auto& poseB = mRegistry.getComponent<Pose>(b.getEntity());
+            anchorA = poseA.orientation.getConjugate() * (worldPivot - poseA.position);
+            anchorB = poseB.orientation.getConjugate() * (worldPivot - poseB.position);
+        }
+        collision::BallSocketConstraint constraint(a.getEntity(), b.getEntity(), anchorA, anchorB);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
     /// @}
 
     /// @name Ayarlar ve Durum Kaydı

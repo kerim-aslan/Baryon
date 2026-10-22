@@ -23,7 +23,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::NewtonsCradle: return "10. Esnek Carpisma & Momentum (Newton Besigi)";
         case SceneType::JointPendulum: return "11. Eklem & Mesafe Kisiti Zinciri";
         case SceneType::FixedConstraintWeld: return "12. Sabit Kaynak Eklemi (Fixed / Weld Joint)";
-        case SceneType::Sandbox: return "13. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::BallSocketPendulum: return "13. Kuresel Mafsal Sarkaci (Ball-Socket Pendulum)";
+        case SceneType::Sandbox: return "14. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -56,6 +57,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "Mesafe kisitlari ile bagli zincir sarkaç. Baumgarte stabilizasyonunu dogrular.";
         case SceneType::FixedConstraintWeld:
             return "6 serbestlik derecesinin (3 cizgisel + 3 acisal) kilitlendigi kaynak eklemini test eder. Yercekimi altinda cantilever konsol kiris ve bagli kutular tek bir kati govde gibi davranir.";
+        case SceneType::BallSocketPendulum:
+            return "3 cizgisel serbestlik derecesinin kilitlendigi, 3 acisal serbestligin serbest oldugu bilyeli mafsal (ball-socket) eklemini gosterir. Cift eklemli 3D kuresel sarkac ve serbest acisal eksende donen jiroskopik bloklar yer alir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -87,6 +90,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::NewtonsCradle: setupNewtonsCradle(sim); break;
         case SceneType::JointPendulum: setupJointPendulum(sim); break;
         case SceneType::FixedConstraintWeld: setupFixedConstraintWeld(sim); break;
+        case SceneType::BallSocketPendulum: setupBallSocketPendulum(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -581,6 +585,49 @@ void TestScenes::setupFixedConstraintWeld(Simulator& sim) {
 
     sim.createFixedConstraint(t1, t2);
     (void)t1.setAngularVelocity(Vector3(0.0f, 0.0f, 2.0f));
+}
+
+void TestScenes::setupBallSocketPendulum(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(20.0f, 0.5f, 20.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. Çift Mafsallı Küresel Sarkaç (Double Spherical Pendulum)
+    Vector3 pivot1(0.0f, 8.0f, 0.0f);
+    Pose p1Pose(pivot1);
+    Body p1 = sim.createBody(p1Pose, collision::CollisionShape{collision::SphereShape(0.15f)});
+    p1.setBodyType(Core::BodyType::Static);
+
+    Vector3 bob1Pos(2.0f, 8.0f, 0.0f);
+    Pose b1Pose(bob1Pos);
+    Body b1 = sim.createBody(b1Pose, collision::CollisionShape{collision::SphereShape(0.25f)});
+    b1.setBodyType(Core::BodyType::Dynamic);
+    (void)b1.setMass(1.0f);
+    sim.createBallSocketConstraint(p1, b1, pivot1);
+
+    Vector3 bob2Pos(3.5f, 8.0f, 0.5f);
+    Pose b2Pose(bob2Pos);
+    Body b2 = sim.createBody(b2Pose, collision::CollisionShape{collision::SphereShape(0.25f)});
+    b2.setBodyType(Core::BodyType::Dynamic);
+    (void)b2.setMass(1.0f);
+    sim.createBallSocketConstraint(b1, b2, bob1Pos);
+
+    // 2. Jiroskopik Serbest Dönen Kutu (3-DOF Serbest Rotasyon Gösterimi)
+    Vector3 pivotSpin(-4.0f, 7.0f, 0.0f);
+    Pose pSpinPose(pivotSpin);
+    Body pSpin = sim.createBody(pSpinPose, collision::CollisionShape{collision::SphereShape(0.15f)});
+    pSpin.setBodyType(Core::BodyType::Static);
+
+    Vector3 spinnerPos(-4.0f, 5.0f, 0.0f);
+    Pose spinPose(spinnerPos);
+    Body spinner = sim.createBody(spinPose, collision::CollisionShape{collision::BoxShape(Vector3(0.3f, 0.6f, 0.3f))});
+    spinner.setBodyType(Core::BodyType::Dynamic);
+    (void)spinner.setMass(2.0f);
+    sim.createBallSocketConstraint(pSpin, spinner, pivotSpin);
+    (void)spinner.setAngularVelocity(Vector3(2.0f, 5.0f, 1.0f));
 }
 
 } // namespace Baryon::Debugger

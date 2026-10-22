@@ -19,6 +19,7 @@
 #pragma once
 
 #include "Baryon/Core/CoreComponents.hpp"
+#include "Baryon/collision/BallSocketConstraint.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
@@ -47,7 +48,8 @@ using ComponentTypes = std::tuple<
     ecs::ColliderData,
     collision::DistanceConstraint,
     collision::RevoluteConstraint,
-    collision::FixedConstraint
+    collision::FixedConstraint,
+    collision::BallSocketConstraint
 >;
 
 /**
@@ -56,7 +58,8 @@ using ComponentTypes = std::tuple<
 using ConstraintTypes = std::tuple<
     collision::DistanceConstraint,
     collision::RevoluteConstraint,
-    collision::FixedConstraint
+    collision::FixedConstraint,
+    collision::BallSocketConstraint
 >;
 
 template <typename Tuple>

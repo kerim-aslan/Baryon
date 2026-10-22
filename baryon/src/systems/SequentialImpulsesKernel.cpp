@@ -26,6 +26,7 @@
 
 #include "Baryon/systems/SequentialImpulsesKernel.hpp"
 #include "Baryon/Core/DebugManager.hpp"
+#include "Baryon/collision/BallSocketConstraint.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
@@ -142,6 +143,27 @@ void SequentialImpulsesKernel::solveConstraintVelocity(
 void SequentialImpulsesKernel::solveConstraintPosition(
     collision::FixedConstraint &constraint, float deltaTime) {
   solveFixedConstraintPosition(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::prepareConstraint(
+    collision::BallSocketConstraint &constraint, float deltaTime) {
+  (void)deltaTime;
+  constraint.accumulatedImpulseLinear = Vector3(0.0f, 0.0f, 0.0f);
+}
+
+void SequentialImpulsesKernel::warmStartConstraint(
+    collision::BallSocketConstraint &constraint) {
+  (void)constraint;
+}
+
+void SequentialImpulsesKernel::solveConstraintVelocity(
+    collision::BallSocketConstraint &constraint, float deltaTime) {
+  resolveBallSocketConstraint(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::solveConstraintPosition(
+    collision::BallSocketConstraint &constraint, float deltaTime) {
+  solveBallSocketConstraintPosition(constraint, deltaTime);
 }
 
 void SequentialImpulsesKernel::collectIslandConstraints(
@@ -1102,6 +1124,123 @@ void SequentialImpulsesKernel::solveFixedConstraintPosition(
 
       relSplitAngVel = motionA.splitAngularVelocity - motionB.splitAngularVelocity;
     }
+  }
+}
+
+void SequentialImpulsesKernel::resolveBallSocketConstraint(
+    collision::BallSocketConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+
+  // Çizgisel Hız Kısıtı: Bağlantı noktalarının bağıl hızını sıfırla (v_rel = 0)
+  Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  Vector3 relVel = vA - vB;
+
+  // 3x3 Blok Efektif Kütle Matrisi: K = (mA^-1 + mB^-1)*I - [rA]x IA^-1 [rA]x - [rB]x IB^-1 [rB]x
+  float wSum = massA.inverseMass + massB.inverseMass;
+  Matrix3x3 K;
+  for (std::size_t col = 0; col < 3; ++col) {
+    Vector3 e(col == 0 ? 1.0f : 0.0f, col == 1 ? 1.0f : 0.0f, col == 2 ? 1.0f : 0.0f);
+    Vector3 colA = (massA.inverseMass > 0.0f) ? -rA.cross(massA.inverseInertiaTensor * rA.cross(e)) : Vector3(0, 0, 0);
+    Vector3 colB = (massB.inverseMass > 0.0f) ? -rB.cross(massB.inverseInertiaTensor * rB.cross(e)) : Vector3(0, 0, 0);
+    Vector3 kCol = e * wSum + colA + colB;
+    K.rows[0][col] = kCol.x;
+    K.rows[1][col] = kCol.y;
+    K.rows[2][col] = kCol.z;
+  }
+
+  float det = K.getDeterminant();
+  if (std::abs(det) > 1e-7f) {
+    Matrix3x3 invK = K.getInverse();
+    Vector3 impulse = invK * (-relVel);
+    constraint.accumulatedImpulseLinear += impulse;
+
+    motionA.linearVelocity += impulse * massA.inverseMass;
+    motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+    motionB.linearVelocity -= impulse * massB.inverseMass;
+    motionB.angularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
+  }
+}
+
+void SequentialImpulsesKernel::solveBallSocketConstraintPosition(
+    collision::BallSocketConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+
+  // Split impulse ile dinamik öngörülen pozisyon hatası
+  Vector3 effA = pA + (motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA)) * deltaTime;
+  Vector3 effB = pB + (motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB)) * deltaTime;
+  Vector3 linearError = effA - effB;
+
+  const float splitFactor = 0.8f;
+  Vector3 linearBias = linearError * (splitFactor / deltaTime);
+
+  Vector3 vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+  Vector3 vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+  Vector3 relSplitVel = vSplitA - vSplitB;
+
+  float wSum = massA.inverseMass + massB.inverseMass;
+  Matrix3x3 K;
+  for (std::size_t col = 0; col < 3; ++col) {
+    Vector3 e(col == 0 ? 1.0f : 0.0f, col == 1 ? 1.0f : 0.0f, col == 2 ? 1.0f : 0.0f);
+    Vector3 colA = (massA.inverseMass > 0.0f) ? -rA.cross(massA.inverseInertiaTensor * rA.cross(e)) : Vector3(0, 0, 0);
+    Vector3 colB = (massB.inverseMass > 0.0f) ? -rB.cross(massB.inverseInertiaTensor * rB.cross(e)) : Vector3(0, 0, 0);
+    Vector3 kCol = e * wSum + colA + colB;
+    K.rows[0][col] = kCol.x;
+    K.rows[1][col] = kCol.y;
+    K.rows[2][col] = kCol.z;
+  }
+
+  float det = K.getDeterminant();
+  if (std::abs(det) > 1e-7f) {
+    Matrix3x3 invK = K.getInverse();
+    Vector3 impulse = invK * (-(relSplitVel + linearBias));
+
+    motionA.splitLinearVelocity += impulse * massA.inverseMass;
+    motionA.splitAngularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+    motionB.splitLinearVelocity -= impulse * massB.inverseMass;
+    motionB.splitAngularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
   }
 }
 

@@ -243,6 +243,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/FixedConstraintTest.cpp")
     add_test(NAME FixedConstraintTest COMMAND FixedConstraintTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/BallSocketConstraintTest.cpp")
+    add_executable(BallSocketConstraintTest tests/BallSocketConstraintTest.cpp)
+    target_link_libraries(BallSocketConstraintTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME BallSocketConstraintTest COMMAND BallSocketConstraintTest)
+endif()
+
 
 
 # Headless Physics Harness Library & Executable (Faz 0.1)

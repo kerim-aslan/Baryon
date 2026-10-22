@@ -29,6 +29,7 @@ int main() {
     static_assert(Registry::isRegistered<collision::DistanceConstraint>, "DistanceConstraint bileseni kayitli olmali");
     static_assert(Registry::isRegistered<collision::RevoluteConstraint>, "RevoluteConstraint bileseni kayitli olmali");
     static_assert(Registry::isRegistered<collision::FixedConstraint>, "FixedConstraint bileseni kayitli olmali");
+    static_assert(Registry::isRegistered<collision::BallSocketConstraint>, "BallSocketConstraint bileseni kayitli olmali");
 
     // 2. Custom bileşenin tek noktadan genişletilmiş tip listesi ile kaydı:
     using ExtendedComponentTypes = std::tuple<
@@ -42,6 +43,7 @@ int main() {
         collision::DistanceConstraint,
         collision::RevoluteConstraint,
         collision::FixedConstraint,
+        collision::BallSocketConstraint,
         CustomGameComponent
     >;
 

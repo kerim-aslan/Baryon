@@ -25,6 +25,7 @@ enum class SceneType {
     NewtonsCradle,
     JointPendulum,
     FixedConstraintWeld,
+    BallSocketPendulum,
     Sandbox,
     Count
 };
@@ -44,6 +45,7 @@ private:
     static void setupNewtonsCradle(Simulator& sim);
     static void setupJointPendulum(Simulator& sim);
     static void setupFixedConstraintWeld(Simulator& sim);
+    static void setupBallSocketPendulum(Simulator& sim);
     static void setupSandbox(Simulator& sim);
     static void setupTriggerSensors(Simulator& sim);
     static void setupCollisionFiltering(Simulator& sim);
