@@ -42,15 +42,40 @@ private:
         std::unordered_map<uint64_t, collision::ContactManifold>& manifoldMap,
         std::vector<collision::ContactManifold*>& localManifolds);
 
-    void collectIslandConstraints(
-        const std::vector<ecs::Entity>& island,
-        std::vector<collision::DistanceConstraint*>& localDistance,
-        std::vector<collision::RevoluteConstraint*>& localRevolute);
-
     std::vector<std::vector<collision::ContactManifold*>> routeAndSortIslandManifolds(
         std::unordered_map<uint64_t, collision::ContactManifold>& manifoldMap,
         const std::unordered_map<uint64_t, size_t>& entityToIsland,
         size_t islandCount);
+
+    using ConstraintRef = Core::ConstraintPtrVariant;
+
+    void collectIslandConstraints(
+        const std::vector<ecs::Entity>& island,
+        std::vector<ConstraintRef>& localConstraints);
+
+    std::vector<std::vector<ConstraintRef>> routeIslandConstraints(
+        const std::unordered_map<uint64_t, size_t>& entityToIsland,
+        size_t islandCount);
+
+    void solveSingleIsland(
+        const std::vector<collision::ContactManifold*>& localManifolds,
+        const std::vector<ConstraintRef>& localConstraints,
+        float deltaTime, int velocityIterations, int positionIterations);
+
+    void prepareConstraint(collision::DistanceConstraint& constraint, float deltaTime);
+    void warmStartConstraint(collision::DistanceConstraint& constraint);
+    void solveConstraintVelocity(collision::DistanceConstraint& constraint, float deltaTime);
+    void solveConstraintPosition(collision::DistanceConstraint& constraint, float deltaTime);
+
+    void prepareConstraint(collision::RevoluteConstraint& constraint, float deltaTime);
+    void warmStartConstraint(collision::RevoluteConstraint& constraint);
+    void solveConstraintVelocity(collision::RevoluteConstraint& constraint, float deltaTime);
+    void solveConstraintPosition(collision::RevoluteConstraint& constraint, float deltaTime);
+
+    void collectIslandConstraints(
+        const std::vector<ecs::Entity>& island,
+        std::vector<collision::DistanceConstraint*>& localDistance,
+        std::vector<collision::RevoluteConstraint*>& localRevolute);
 
     std::vector<std::vector<collision::DistanceConstraint*>> routeIslandDistanceConstraints(
         const std::unordered_map<uint64_t, size_t>& entityToIsland,

@@ -26,6 +26,9 @@ int main() {
     static_assert(Registry::isRegistered<Motion>, "Motion bileseni kayitli olmali");
     static_assert(Registry::isRegistered<MassProps>, "MassProps bileseni kayitli olmali");
     static_assert(Registry::isRegistered<BodyState>, "BodyState bileseni kayitli olmali");
+    static_assert(Registry::isRegistered<collision::DistanceConstraint>, "DistanceConstraint bileseni kayitli olmali");
+    static_assert(Registry::isRegistered<collision::RevoluteConstraint>, "RevoluteConstraint bileseni kayitli olmali");
+
 
     // 2. Custom bileşenin tek noktadan genişletilmiş tip listesi ile kaydı:
     using ExtendedComponentTypes = std::tuple<

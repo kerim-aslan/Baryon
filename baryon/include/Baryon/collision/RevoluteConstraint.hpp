@@ -17,8 +17,8 @@
  */
 
 #pragma once
-#include "../math/Vector3.hpp"
-#include "../ecs/EntityManager.hpp"
+
+#include "ConstraintBase.hpp"
 
 /**
  * @file RevoluteConstraint.hpp
@@ -33,19 +33,22 @@ namespace Baryon::collision {
  * @struct RevoluteConstraint
  * @brief Menteşe ekleminin fiziksel özelliklerini ve sınırlarını tutan yapı.
  */
-struct RevoluteConstraint {
-    ecs::Entity entityA;       ///< Birinci varlık kimliği.
-    ecs::Entity entityB;       ///< İkinci varlık kimliği.
+struct RevoluteConstraint : public ConstraintBase {
+    Vector3 hingeAxisLocalA{1.0f, 0.0f, 0.0f}; ///< A cisminin kendi yerel uzayındaki dönme ekseni.
+    Vector3 hingeAxisLocalB{1.0f, 0.0f, 0.0f}; ///< B cisminin kendi yerel uzayındaki dönme ekseni.
 
-    Vector3 localAnchorA;      ///< A cismi üzerindeki yerel bağlantı (menteşe) noktası.
-    Vector3 localAnchorB;      ///< B cismi üzerindeki yerel bağlantı (menteşe) noktası.
+    bool enableLimit{false};       ///< Dönüş açısı sınırlandırmasının aktif olup olmadığı.
+    float lowerAngleLimit{0.0f};   ///< İzin verilen minimum dönüş açısı (radyan cinsinden).
+    float upperAngleLimit{0.0f};   ///< İzin verilen maksimum dönüş açısı (radyan cinsinden).
 
-    Vector3 hingeAxisLocalA;   ///< A cisminin kendi yerel uzayındaki dönme ekseni.
-    Vector3 hingeAxisLocalB;   ///< B cisminin kendi yerel uzayındaki dönme ekseni.
+    Vector3 accumulatedImpulsePoint{0.0f, 0.0f, 0.0f}; ///< Noktasal bağlantı için birikmiş itme kuvveti.
+    Vector3 accumulatedImpulseHinge{0.0f, 0.0f, 0.0f}; ///< Eksen dışı kilit için birikmiş açısal itme kuvveti.
+    float accumulatedMotorImpulse{0.0f};               ///< Motor için birikmiş tork itmesi.
 
-    bool enableLimit{false};   ///< Dönüş açısı sınırlandırmasının aktif olup olmadığı.
-    float lowerAngleLimit{0.0f}; ///< İzin verilen minimum dönüş açısı (radyan cinsinden).
-    float upperAngleLimit{0.0f}; ///< İzin verilen maksimum dönüş açısı (radyan cinsinden).
+    /**
+     * @brief Varsayılan yapıcı metot.
+     */
+    RevoluteConstraint() = default;
 
     /**
      * @brief Yeni bir menteşe eklemi oluşturur.
@@ -57,10 +60,9 @@ struct RevoluteConstraint {
      * @param axisB B cisminin dönme ekseni (vektör otomatik olarak normalize edilir).
      */
     RevoluteConstraint(ecs::Entity a, ecs::Entity b, 
-                  const Vector3& anchorA, const Vector3& anchorB, 
-                  const Vector3& axisA, const Vector3& axisB)
-        : entityA(a), entityB(b), 
-          localAnchorA(anchorA), localAnchorB(anchorB), 
+                      const Vector3& anchorA, const Vector3& anchorB, 
+                      const Vector3& axisA, const Vector3& axisB)
+        : ConstraintBase(a, b, anchorA, anchorB),
           hingeAxisLocalA(axisA.getNormalized()), hingeAxisLocalB(axisB.getNormalized()) {}
 };
 

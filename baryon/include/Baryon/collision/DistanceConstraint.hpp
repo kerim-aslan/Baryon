@@ -17,8 +17,8 @@
  */
 
 #pragma once
-#include "../math/Vector3.hpp"
-#include "../ecs/EntityManager.hpp"
+
+#include "ConstraintBase.hpp"
 
 /**
  * @file DistanceConstraint.hpp
@@ -33,14 +33,8 @@ namespace Baryon::collision {
  * @struct DistanceConstraint
  * @brief İki varlık (entity) arasındaki mesafe kısıtlamasının fiziksel özelliklerini tutar.
  */
-struct DistanceConstraint {
-    ecs::Entity entityA;       ///< Birinci varlık kimliği.
-    ecs::Entity entityB;       ///< İkinci varlık kimliği.
-
-    Vector3 localAnchorA;      ///< A cismi üzerindeki yerel bağlantı noktası.
-    Vector3 localAnchorB;      ///< B cismi üzerindeki yerel bağlantı noktası.
-
-    float targetDistance;      ///< Korunmaya çalışılan hedef mesafe (metre).
+struct DistanceConstraint : public ConstraintBase {
+    float targetDistance{0.0f}; ///< Korunmaya çalışılan hedef mesafe (metre).
     
     /**
      * @brief Bağlantının sertlik (yay) katsayısı [0.0, 1.0] arasında olmalıdır.
@@ -56,13 +50,35 @@ struct DistanceConstraint {
     float damping{0.1f};       
 
     /**
+     * @brief Birikmiş itme kuvveti (warm starting ve snapshot için saklanır).
+     */
+    float accumulatedImpulse{0.0f};
+
+    /**
+     * @brief Varsayılan yapıcı metot.
+     */
+    DistanceConstraint() = default;
+
+    /**
      * @brief Yeni bir mesafe kısıtlaması oluşturur.
      * @param a Birinci varlık.
      * @param b İkinci varlık.
      * @param dist İki varlık arasındaki korunacak hedef mesafe.
      */
     DistanceConstraint(ecs::Entity a, ecs::Entity b, float dist)
-        : entityA(a), entityB(b), targetDistance(dist) {}
+        : ConstraintBase(a, b), targetDistance(dist) {}
+
+    /**
+     * @brief Yerel bağlantı noktaları ile mesafe kısıtlaması oluşturur.
+     * @param a Birinci varlık.
+     * @param b İkinci varlık.
+     * @param anchorA A cismi üzerindeki bağlantı noktası.
+     * @param anchorB B cismi üzerindeki bağlantı noktası.
+     * @param dist Korunacak hedef mesafe.
+     */
+    DistanceConstraint(ecs::Entity a, ecs::Entity b,
+                       const Vector3& anchorA, const Vector3& anchorB, float dist)
+        : ConstraintBase(a, b, anchorA, anchorB), targetDistance(dist) {}
 };
 
 } // namespace Baryon::collision

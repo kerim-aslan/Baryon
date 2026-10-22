@@ -199,30 +199,26 @@ void Simulator::destroyBody(Body &body) {
 				}
 			}
 		}
-		auto &distConstraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
-		for (const auto &c : distConstraints) {
-			if (c.entityA == entity && mRegistry.isAlive(c.entityB) && mRegistry.hasComponent<Core::BodyState>(c.entityB)) {
-				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityB);
-				st.isSleeping = false;
-				st.sleepTimer = 0.0f;
-			} else if (c.entityB == entity && mRegistry.isAlive(c.entityA) && mRegistry.hasComponent<Core::BodyState>(c.entityA)) {
-				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityA);
-				st.isSleeping = false;
-				st.sleepTimer = 0.0f;
-			}
-		}
-		auto &revConstraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
-		for (const auto &c : revConstraints) {
-			if (c.entityA == entity && mRegistry.isAlive(c.entityB) && mRegistry.hasComponent<Core::BodyState>(c.entityB)) {
-				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityB);
-				st.isSleeping = false;
-				st.sleepTimer = 0.0f;
-			} else if (c.entityB == entity && mRegistry.isAlive(c.entityA) && mRegistry.hasComponent<Core::BodyState>(c.entityA)) {
-				auto &st = mRegistry.getComponent<Core::BodyState>(c.entityA);
-				st.isSleeping = false;
-				st.sleepTimer = 0.0f;
-			}
-		}
+		// 3. Kısıtlamaları temizle ve diğer bağlı canlı cisimleri uyandır
+		auto pruneConstraints = [&]<typename... Cs>(std::type_identity<std::tuple<Cs...>>) {
+			([&]() {
+				auto &pool = mRegistry.getComponentPool<Cs>();
+				auto entities = pool.getAllEntities();
+				for (ecs::Entity ent : entities) {
+					const auto &c = pool.getData(ent);
+					if (c.entityA == entity || c.entityB == entity) {
+						ecs::Entity other = (c.entityA == entity) ? c.entityB : c.entityA;
+						if (mRegistry.isAlive(other) && mRegistry.hasComponent<Core::BodyState>(other)) {
+							auto &st = mRegistry.getComponent<Core::BodyState>(other);
+							st.isSleeping = false;
+							st.sleepTimer = 0.0f;
+						}
+						pool.removeComponent(ent);
+					}
+				}
+			}(), ...);
+		};
+		pruneConstraints(std::type_identity<Core::ConstraintTypes>{});
 
 		mSpatialPartitioning.removeEntityFromTree(entity);
 		mRegistry.destroyEntity(entity);

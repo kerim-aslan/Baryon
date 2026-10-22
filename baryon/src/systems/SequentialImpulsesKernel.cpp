@@ -78,46 +78,100 @@ void SequentialImpulsesKernel::collectIslandManifolds(
   }
 }
 
+void SequentialImpulsesKernel::prepareConstraint(
+    collision::DistanceConstraint &constraint, float deltaTime) {
+  (void)constraint;
+  (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::warmStartConstraint(
+    collision::DistanceConstraint &constraint) {
+  (void)constraint;
+}
+
+void SequentialImpulsesKernel::solveConstraintVelocity(
+    collision::DistanceConstraint &constraint, float deltaTime) {
+  resolveDistanceConstraint(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::solveConstraintPosition(
+    collision::DistanceConstraint &constraint, float deltaTime) {
+  (void)constraint;
+  (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::prepareConstraint(
+    collision::RevoluteConstraint &constraint, float deltaTime) {
+  (void)constraint;
+  (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::warmStartConstraint(
+    collision::RevoluteConstraint &constraint) {
+  (void)constraint;
+}
+
+void SequentialImpulsesKernel::solveConstraintVelocity(
+    collision::RevoluteConstraint &constraint, float deltaTime) {
+  resolveRevoluteConstraint(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::solveConstraintPosition(
+    collision::RevoluteConstraint &constraint, float deltaTime) {
+  (void)constraint;
+  (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::collectIslandConstraints(
+    const std::vector<ecs::Entity> &island,
+    std::vector<ConstraintRef> &localConstraints) {
+  if (island.empty())
+    return;
+
+  auto collectForTypes = [&]<typename... Cs>(std::type_identity<std::tuple<Cs...>>) {
+    ([&]() {
+      auto &pool = mRegistry.getComponentPool<Cs>();
+      if (pool.getAllData().size() > 0) {
+        for (auto &constraint : pool.getAllData()) {
+          if (!constraint.isEnabled || constraint.isBroken)
+            continue;
+          bool match = false;
+          for (ecs::Entity e : island) {
+            if (e.id == constraint.entityA.id || e.id == constraint.entityB.id) {
+              match = true;
+              break;
+            }
+          }
+          if (match) {
+            localConstraints.push_back(&constraint);
+          }
+        }
+      }
+    }(), ...);
+  };
+  collectForTypes(std::type_identity<Core::ConstraintTypes>{});
+}
+
 void SequentialImpulsesKernel::collectIslandConstraints(
     const std::vector<ecs::Entity> &island,
     std::vector<collision::DistanceConstraint *> &localDistance,
     std::vector<collision::RevoluteConstraint *> &localRevolute) {
-  if (mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData().size() > 0) {
-    auto &constraints = mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
-    for (auto &constraint : constraints) {
-      bool match = false;
-      for (ecs::Entity e : island) {
-        if (e.id == constraint.entityA.id || e.id == constraint.entityB.id) {
-          match = true;
-          break;
-        }
-      }
-      if (match)
-        localDistance.push_back(&constraint);
-    }
-  }
-  if (mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData().size() > 0) {
-    auto &constraints = mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
-    for (auto &constraint : constraints) {
-      bool match = false;
-      for (ecs::Entity e : island) {
-        if (e.id == constraint.entityA.id || e.id == constraint.entityB.id) {
-          match = true;
-          break;
-        }
-      }
-      if (match)
-        localRevolute.push_back(&constraint);
+  std::vector<ConstraintRef> localConstraints;
+  collectIslandConstraints(island, localConstraints);
+  for (auto &cr : localConstraints) {
+    if (std::holds_alternative<collision::DistanceConstraint *>(cr)) {
+      localDistance.push_back(std::get<collision::DistanceConstraint *>(cr));
+    } else if (std::holds_alternative<collision::RevoluteConstraint *>(cr)) {
+      localRevolute.push_back(std::get<collision::RevoluteConstraint *>(cr));
     }
   }
 }
 
 void SequentialImpulsesKernel::solveSingleIsland(
     const std::vector<collision::ContactManifold *> &localManifolds,
-    const std::vector<collision::DistanceConstraint *> &localDist,
-    const std::vector<collision::RevoluteConstraint *> &localRev,
+    const std::vector<ConstraintRef> &localConstraints,
     float deltaTime, int velocityIterations, int positionIterations) {
-  if (localManifolds.empty() && localDist.empty() && localRev.empty()) {
+  if (localManifolds.empty() && localConstraints.empty()) {
     return;
   }
 
@@ -126,6 +180,14 @@ void SequentialImpulsesKernel::solveSingleIsland(
     if (!manifold->isTriggerPair)
       preStep(*manifold, deltaTime);
   }
+  for (const auto &cv : localConstraints) {
+    std::visit([&](auto *c) {
+      if (c && c->isEnabled && !c->isBroken) {
+        prepareConstraint(*c, deltaTime);
+        warmStartConstraint(*c);
+      }
+    }, cv);
+  }
 
   // 2. Hız İterasyonları: Gauss-Seidel yaklaşımı
   for (int iter = 0; iter < velocityIterations; ++iter) {
@@ -133,11 +195,12 @@ void SequentialImpulsesKernel::solveSingleIsland(
       if (!manifold->isTriggerPair)
         resolveCollision(*manifold, deltaTime);
     }
-    for (collision::DistanceConstraint *constraint : localDist) {
-      resolveDistanceConstraint(*constraint, deltaTime);
-    }
-    for (collision::RevoluteConstraint *constraint : localRev) {
-      resolveRevoluteConstraint(*constraint, deltaTime);
+    for (const auto &cv : localConstraints) {
+      std::visit([&](auto *c) {
+        if (c && c->isEnabled && !c->isBroken) {
+          solveConstraintVelocity(*c, deltaTime);
+        }
+      }, cv);
     }
   }
 
@@ -147,7 +210,30 @@ void SequentialImpulsesKernel::solveSingleIsland(
       if (!manifold->isTriggerPair)
         solvePositionConstraints(*manifold, deltaTime);
     }
+    for (const auto &cv : localConstraints) {
+      std::visit([&](auto *c) {
+        if (c && c->isEnabled && !c->isBroken) {
+          solveConstraintPosition(*c, deltaTime);
+        }
+      }, cv);
+    }
   }
+}
+
+void SequentialImpulsesKernel::solveSingleIsland(
+    const std::vector<collision::ContactManifold *> &localManifolds,
+    const std::vector<collision::DistanceConstraint *> &localDist,
+    const std::vector<collision::RevoluteConstraint *> &localRev,
+    float deltaTime, int velocityIterations, int positionIterations) {
+  std::vector<ConstraintRef> localConstraints;
+  localConstraints.reserve(localDist.size() + localRev.size());
+  for (auto *d : localDist)
+    localConstraints.push_back(d);
+  for (auto *r : localRev)
+    localConstraints.push_back(r);
+
+  solveSingleIsland(localManifolds, localConstraints, deltaTime,
+                    velocityIterations, positionIterations);
 }
 
 void SequentialImpulsesKernel::execute(
@@ -160,11 +246,10 @@ void SequentialImpulsesKernel::execute(
   std::vector<collision::ContactManifold *> localManifolds;
   collectIslandManifolds(island, manifolds, localManifolds);
 
-  std::vector<collision::DistanceConstraint *> localDistance;
-  std::vector<collision::RevoluteConstraint *> localRevolute;
-  collectIslandConstraints(island, localDistance, localRevolute);
+  std::vector<ConstraintRef> localConstraints;
+  collectIslandConstraints(island, localConstraints);
 
-  solveSingleIsland(localManifolds, localDistance, localRevolute, deltaTime,
+  solveSingleIsland(localManifolds, localConstraints, deltaTime,
                     velocityIterations, positionIterations);
 }
 
@@ -198,6 +283,37 @@ SequentialImpulsesKernel::routeAndSortIslandManifolds(
     });
   }
   return islandManifolds;
+}
+
+std::vector<std::vector<SequentialImpulsesKernel::ConstraintRef>>
+SequentialImpulsesKernel::routeIslandConstraints(
+    const std::unordered_map<uint64_t, size_t> &entityToIsland,
+    size_t islandCount) {
+  std::vector<std::vector<ConstraintRef>> islandConstraints(islandCount);
+
+  auto routeForTypes = [&]<typename... Cs>(std::type_identity<std::tuple<Cs...>>) {
+    ([&]() {
+      auto &pool = mRegistry.getComponentPool<Cs>();
+      if (pool.getAllData().size() > 0) {
+        for (auto &constraint : pool.getAllData()) {
+          if (!constraint.isEnabled || constraint.isBroken)
+            continue;
+          auto itA = entityToIsland.find(constraint.entityA.id);
+          if (itA != entityToIsland.end()) {
+            islandConstraints[itA->second].push_back(&constraint);
+          } else {
+            auto itB = entityToIsland.find(constraint.entityB.id);
+            if (itB != entityToIsland.end()) {
+              islandConstraints[itB->second].push_back(&constraint);
+            }
+          }
+        }
+      }
+    }(), ...);
+  };
+  routeForTypes(std::type_identity<Core::ConstraintTypes>{});
+
+  return islandConstraints;
 }
 
 std::vector<std::vector<collision::DistanceConstraint *>>
@@ -268,15 +384,12 @@ void SequentialImpulsesKernel::executeIslands(
   // 2. Manifoldları ilgili adalara yönlendir ve sırala (O(M))
   auto islandManifolds = routeAndSortIslandManifolds(manifolds, entityToIsland, islands.size());
 
-  // 3. Mesafe kısıtlamalarını ilgili adalara yönlendir
-  auto islandDistance = routeIslandDistanceConstraints(entityToIsland, islands.size());
+  // 3. Kısıtlamaları ilgili adalara yönlendir (O(C))
+  auto islandConstraints = routeIslandConstraints(entityToIsland, islands.size());
 
-  // 4. Menteşe kısıtlamalarını ilgili adalara yönlendir
-  auto islandRevolute = routeIslandRevoluteConstraints(entityToIsland, islands.size());
-
-  // 5. Her adayı kendi temasları ve kısıtlamaları ile çöz
+  // 4. Her adayı kendi temasları ve kısıtlamaları ile çöz
   for (size_t i = 0; i < islands.size(); ++i) {
-    solveSingleIsland(islandManifolds[i], islandDistance[i], islandRevolute[i],
+    solveSingleIsland(islandManifolds[i], islandConstraints[i],
                       deltaTime, velocityIterations, positionIterations);
   }
 }

@@ -231,6 +231,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/HeightfieldShapeTest.cpp")
     add_test(NAME HeightfieldShapeTest COMMAND HeightfieldShapeTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ConstraintInfrastructureTest.cpp")
+    add_executable(ConstraintInfrastructureTest tests/ConstraintInfrastructureTest.cpp)
+    target_link_libraries(ConstraintInfrastructureTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME ConstraintInfrastructureTest COMMAND ConstraintInfrastructureTest)
+endif()
+
+
 # Headless Physics Harness Library & Executable (Faz 0.1)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/harness/HarnessRunner.cpp")
     add_library(BaryonHarnessLib STATIC tests/harness/HarnessRunner.cpp)

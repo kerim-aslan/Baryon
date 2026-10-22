@@ -63,17 +63,18 @@ std::vector<std::vector<ecs::Entity>> IslandSystem::buildIslands(
       addEdge(manifold.entityA, manifold.entityB);
   }
 
-  // Sabit mesafe kısıtlamaları olan cisimler arasında bağ kur
-  auto &distConstraints =
-      mRegistry.getComponentPool<collision::DistanceConstraint>().getAllData();
-  for (const auto &constraint : distConstraints)
-    addEdge(constraint.entityA, constraint.entityB);
+  // Kısıtlamaları olan cisimler arasında bağ kur (genel altyapı)
+  auto addAllConstraints = [&]<typename... Cs>(std::type_identity<std::tuple<Cs...>>) {
+    ([&]() {
+      for (const auto &constraint : mRegistry.getComponentPool<Cs>().getAllData()) {
+        if (constraint.isEnabled && !constraint.isBroken) {
+          addEdge(constraint.entityA, constraint.entityB);
+        }
+      }
+    }(), ...);
+  };
+  addAllConstraints(std::type_identity<Core::ConstraintTypes>{});
 
-  // Menteşe/Dönme kısıtlamaları olan cisimler arasında bağ kur
-  auto &revConstraints =
-      mRegistry.getComponentPool<collision::RevoluteConstraint>().getAllData();
-  for (const auto &constraint : revConstraints)
-    addEdge(constraint.entityA, constraint.entityB);
 
   // BFS algoritması ile bağımsız adaları bul
   std::unordered_set<uint64_t> visited;

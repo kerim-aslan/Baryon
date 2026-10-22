@@ -25,6 +25,7 @@
 #include "Baryon/math/Pose.hpp"
 #include <tuple>
 #include <type_traits>
+#include <variant>
 
 /**
  * @file ComponentTypes.hpp
@@ -47,6 +48,27 @@ using ComponentTypes = std::tuple<
     collision::RevoluteConstraint
 >;
 
+/**
+ * @brief Tüm eklem ve kısıtlama bileşen türlerinin merkezi listesi.
+ */
+using ConstraintTypes = std::tuple<
+    collision::DistanceConstraint,
+    collision::RevoluteConstraint
+>;
+
+template <typename Tuple>
+struct TupleToPtrVariant;
+
+template <typename... Ts>
+struct TupleToPtrVariant<std::tuple<Ts...>> {
+    using type = std::variant<Ts*...>;
+};
+
+/**
+ * @brief Ada çözücüsü için kısıtlama gösterici varyantı.
+ */
+using ConstraintPtrVariant = typename TupleToPtrVariant<ConstraintTypes>::type;
+
 template <typename T, typename Tuple>
 struct TupleContains;
 
@@ -57,3 +79,4 @@ template <typename T>
 inline constexpr bool isRegisteredComponent = TupleContains<T, ComponentTypes>::value;
 
 } // namespace Baryon::Core
+
