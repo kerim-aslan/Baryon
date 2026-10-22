@@ -20,6 +20,7 @@
 
 #include "Baryon/Core/CoreComponents.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
+#include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include "Baryon/ecs/ColliderComponents.hpp"
 #include "Baryon/math/Pose.hpp"
@@ -45,7 +46,8 @@ using ComponentTypes = std::tuple<
     Linkage,
     ecs::ColliderData,
     collision::DistanceConstraint,
-    collision::RevoluteConstraint
+    collision::RevoluteConstraint,
+    collision::FixedConstraint
 >;
 
 /**
@@ -53,7 +55,8 @@ using ComponentTypes = std::tuple<
  */
 using ConstraintTypes = std::tuple<
     collision::DistanceConstraint,
-    collision::RevoluteConstraint
+    collision::RevoluteConstraint,
+    collision::FixedConstraint
 >;
 
 template <typename Tuple>

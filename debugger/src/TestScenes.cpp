@@ -22,7 +22,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::BoxStacking: return "9. Kutu Yigini Kararliligi (10 Kutu)";
         case SceneType::NewtonsCradle: return "10. Esnek Carpisma & Momentum (Newton Besigi)";
         case SceneType::JointPendulum: return "11. Eklem & Mesafe Kisiti Zinciri";
-        case SceneType::Sandbox: return "12. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::FixedConstraintWeld: return "12. Sabit Kaynak Eklemi (Fixed / Weld Joint)";
+        case SceneType::Sandbox: return "13. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -53,6 +54,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "Yanyana kureler serisi. Yuzey sekmesini ve momentum aktarimini test eder.";
         case SceneType::JointPendulum:
             return "Mesafe kisitlari ile bagli zincir sarkaç. Baumgarte stabilizasyonunu dogrular.";
+        case SceneType::FixedConstraintWeld:
+            return "6 serbestlik derecesinin (3 cizgisel + 3 acisal) kilitlendigi kaynak eklemini test eder. Yercekimi altinda cantilever konsol kiris ve bagli kutular tek bir kati govde gibi davranir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -83,6 +86,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::BoxStacking: setupBoxStacking(sim); break;
         case SceneType::NewtonsCradle: setupNewtonsCradle(sim); break;
         case SceneType::JointPendulum: setupJointPendulum(sim); break;
+        case SceneType::FixedConstraintWeld: setupFixedConstraintWeld(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -539,6 +543,44 @@ void TestScenes::setupSweepQueries(Simulator& sim) {
     collision::CompoundShape dumbbell(std::move(children));
     Body damb = sim.createBody(Pose(Vector3(4.5f, 1.5f, 0.0f)), collision::CollisionShape{dumbbell});
     damb.setBodyType(Core::BodyType::Static);
+}
+
+void TestScenes::setupFixedConstraintWeld(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(20.0f, 0.5f, 20.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. Konsol kiriş (Cantilever): Statik mesnet ve 3 parçalı kaynak kiriş
+    Pose postPose(Vector3(-4.0f, 5.0f, 0.0f));
+    Body post = sim.createBody(postPose, collision::CollisionShape{collision::BoxShape(Vector3(0.25f, 5.0f, 0.25f))});
+    post.setBodyType(Core::BodyType::Static);
+
+    Body prev = post;
+    for (int i = 1; i <= 3; ++i) {
+        Pose beamPose(Vector3(-4.0f + static_cast<float>(i) * 1.0f, 9.5f, 0.0f));
+        Body beam = sim.createBody(beamPose, collision::CollisionShape{collision::BoxShape(Vector3(0.45f, 0.15f, 0.15f))});
+        beam.setBodyType(Core::BodyType::Dynamic);
+        (void)beam.setMass(1.5f);
+        sim.createFixedConstraint(prev, beam);
+        prev = beam;
+    }
+
+    // 2. T-Şekilli kaynaklı serbest takla atan dinamik gövde
+    Pose t1Pose(Vector3(3.0f, 8.0f, 0.0f));
+    Body t1 = sim.createBody(t1Pose, collision::CollisionShape{collision::BoxShape(Vector3(0.8f, 0.2f, 0.2f))});
+    t1.setBodyType(Core::BodyType::Dynamic);
+    (void)t1.setMass(2.0f);
+
+    Pose t2Pose(Vector3(3.0f, 7.2f, 0.0f));
+    Body t2 = sim.createBody(t2Pose, collision::CollisionShape{collision::BoxShape(Vector3(0.2f, 0.6f, 0.2f))});
+    t2.setBodyType(Core::BodyType::Dynamic);
+    (void)t2.setMass(2.0f);
+
+    sim.createFixedConstraint(t1, t2);
+    (void)t1.setAngularVelocity(Vector3(0.0f, 0.0f, 2.0f));
 }
 
 } // namespace Baryon::Debugger

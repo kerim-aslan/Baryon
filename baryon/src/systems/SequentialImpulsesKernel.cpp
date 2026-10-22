@@ -27,6 +27,7 @@
 #include "Baryon/systems/SequentialImpulsesKernel.hpp"
 #include "Baryon/Core/DebugManager.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
+#include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include "Baryon/math/Matrix3x3.hpp"
@@ -120,6 +121,27 @@ void SequentialImpulsesKernel::solveConstraintPosition(
     collision::RevoluteConstraint &constraint, float deltaTime) {
   (void)constraint;
   (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::prepareConstraint(
+    collision::FixedConstraint &constraint, float deltaTime) {
+  (void)constraint;
+  (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::warmStartConstraint(
+    collision::FixedConstraint &constraint) {
+  (void)constraint;
+}
+
+void SequentialImpulsesKernel::solveConstraintVelocity(
+    collision::FixedConstraint &constraint, float deltaTime) {
+  resolveFixedConstraint(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::solveConstraintPosition(
+    collision::FixedConstraint &constraint, float deltaTime) {
+  solveFixedConstraintPosition(constraint, deltaTime);
 }
 
 void SequentialImpulsesKernel::collectIslandConstraints(
@@ -904,4 +926,184 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
   }
 }
 
+void SequentialImpulsesKernel::resolveFixedConstraint(
+    collision::FixedConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+
+  // 1. ÇİZGİSEL KISIT: Bağlantı noktalarının ayrılmasını engelle (3 DOF)
+  Vector3 linearError = pA - pB;
+  Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  Vector3 relVel = vA - vB;
+
+  const float baumgarteLinear = 0.4f;
+  Vector3 linearBias = linearError * (baumgarteLinear / deltaTime);
+
+  for (int axis = 0; axis < 3; ++axis) {
+    Vector3 n(axis == 0 ? 1.0f : 0.0f, axis == 1 ? 1.0f : 0.0f, axis == 2 ? 1.0f : 0.0f);
+    Vector3 rACrossN = rA.cross(n);
+    Vector3 rBCrossN = rB.cross(n);
+    float invMassSum = massA.inverseMass + massB.inverseMass +
+                       (massA.inverseInertiaTensor * rACrossN).dot(rACrossN) +
+                       (massB.inverseInertiaTensor * rBCrossN).dot(rBCrossN);
+    if (invMassSum > 1e-6f) {
+      float deltaV = -(relVel.dot(n) + linearBias.dot(n));
+      float j = deltaV / invMassSum;
+      Vector3 impulse = n * j;
+      motionA.linearVelocity += impulse * massA.inverseMass;
+      motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+      motionB.linearVelocity -= impulse * massB.inverseMass;
+      motionB.angularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
+
+      vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+      vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+      relVel = vA - vB;
+    }
+  }
+
+  // 2. AÇISAL KISIT: Bağıl rotasyonun korunması (3 DOF)
+  Quaternion targetB = poseA.orientation * constraint.initialRelativeOrientation;
+  Quaternion qDiff = poseB.orientation * targetB.getInverse();
+  if (qDiff.w < 0.0f) {
+    qDiff.x = -qDiff.x;
+    qDiff.y = -qDiff.y;
+    qDiff.z = -qDiff.z;
+    qDiff.w = -qDiff.w;
+  }
+  Vector3 angularError = Vector3(qDiff.x, qDiff.y, qDiff.z) * 2.0f;
+  const float baumgarteAngular = 0.4f;
+  Vector3 angularBias = angularError * (baumgarteAngular / deltaTime);
+
+  Vector3 relAngVel = motionA.angularVelocity - motionB.angularVelocity;
+
+  for (int axis = 0; axis < 3; ++axis) {
+    Vector3 a(axis == 0 ? 1.0f : 0.0f, axis == 1 ? 1.0f : 0.0f, axis == 2 ? 1.0f : 0.0f);
+    float invAngMass = (massA.inverseInertiaTensor * a).dot(a) +
+                       (massB.inverseInertiaTensor * a).dot(a);
+    if (invAngMass > 1e-6f) {
+      float deltaW = -(relAngVel.dot(a) - angularBias.dot(a));
+      float jAng = deltaW / invAngMass;
+      Vector3 angImpulse = a * jAng;
+      motionA.angularVelocity += massA.inverseInertiaTensor * angImpulse;
+      motionB.angularVelocity -= massB.inverseInertiaTensor * angImpulse;
+
+      relAngVel = motionA.angularVelocity - motionB.angularVelocity;
+    }
+  }
+}
+
+void SequentialImpulsesKernel::solveFixedConstraintPosition(
+    collision::FixedConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+
+  // 1. Çizgisel split impulse (mevcut split hızıyla öngörülen konuma göre dinamik hata)
+  Vector3 effA = pA + (motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA)) * deltaTime;
+  Vector3 effB = pB + (motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB)) * deltaTime;
+  Vector3 linearError = effA - effB;
+
+  const float splitFactorLinear = 0.8f;
+  Vector3 linearBias = linearError * (splitFactorLinear / deltaTime);
+
+  Vector3 vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+  Vector3 vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+  Vector3 relSplitVel = vSplitA - vSplitB;
+
+  for (int axis = 0; axis < 3; ++axis) {
+    Vector3 n(axis == 0 ? 1.0f : 0.0f, axis == 1 ? 1.0f : 0.0f, axis == 2 ? 1.0f : 0.0f);
+    Vector3 rACrossN = rA.cross(n);
+    Vector3 rBCrossN = rB.cross(n);
+    float invMassSum = massA.inverseMass + massB.inverseMass +
+                       (massA.inverseInertiaTensor * rACrossN).dot(rACrossN) +
+                       (massB.inverseInertiaTensor * rBCrossN).dot(rBCrossN);
+    if (invMassSum > 1e-6f) {
+      float deltaV = -(relSplitVel.dot(n) + linearBias.dot(n));
+      float j = deltaV / invMassSum;
+      Vector3 impulse = n * j;
+      motionA.splitLinearVelocity += impulse * massA.inverseMass;
+      motionA.splitAngularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+      motionB.splitLinearVelocity -= impulse * massB.inverseMass;
+      motionB.splitAngularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
+
+      vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+      vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+      relSplitVel = vSplitA - vSplitB;
+    }
+  }
+
+  // 2. Açısal split impulse
+  Quaternion targetB = poseA.orientation * constraint.initialRelativeOrientation;
+  Quaternion qDiff = poseB.orientation * targetB.getInverse();
+  if (qDiff.w < 0.0f) {
+    qDiff.x = -qDiff.x;
+    qDiff.y = -qDiff.y;
+    qDiff.z = -qDiff.z;
+    qDiff.w = -qDiff.w;
+  }
+  Vector3 angularError = Vector3(qDiff.x, qDiff.y, qDiff.z) * 2.0f;
+  const float splitFactorAngular = 0.25f;
+  Vector3 angularBias = angularError * (splitFactorAngular / deltaTime);
+
+  Vector3 relSplitAngVel = motionA.splitAngularVelocity - motionB.splitAngularVelocity;
+
+  for (int axis = 0; axis < 3; ++axis) {
+    Vector3 a(axis == 0 ? 1.0f : 0.0f, axis == 1 ? 1.0f : 0.0f, axis == 2 ? 1.0f : 0.0f);
+    float invAngMass = (massA.inverseInertiaTensor * a).dot(a) +
+                       (massB.inverseInertiaTensor * a).dot(a);
+    if (invAngMass > 1e-6f) {
+      float deltaW = -(relSplitAngVel.dot(a) - angularBias.dot(a));
+      float jAng = deltaW / invAngMass;
+      Vector3 angImpulse = a * jAng;
+      motionA.splitAngularVelocity += massA.inverseInertiaTensor * angImpulse;
+      motionB.splitAngularVelocity -= massB.inverseInertiaTensor * angImpulse;
+
+      relSplitAngVel = motionA.splitAngularVelocity - motionB.splitAngularVelocity;
+    }
+  }
+}
+
 } // namespace Baryon::systems
+

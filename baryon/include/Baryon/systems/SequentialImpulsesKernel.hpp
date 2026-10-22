@@ -21,6 +21,7 @@
 #include "Baryon/Core/Registry.hpp"
 #include "Baryon/collision/ContactManifold.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
+#include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include <vector>
 #include <unordered_map>
@@ -71,6 +72,11 @@ private:
     void warmStartConstraint(collision::RevoluteConstraint& constraint);
     void solveConstraintVelocity(collision::RevoluteConstraint& constraint, float deltaTime);
     void solveConstraintPosition(collision::RevoluteConstraint& constraint, float deltaTime);
+
+    void prepareConstraint(collision::FixedConstraint& constraint, float deltaTime);
+    void warmStartConstraint(collision::FixedConstraint& constraint);
+    void solveConstraintVelocity(collision::FixedConstraint& constraint, float deltaTime);
+    void solveConstraintPosition(collision::FixedConstraint& constraint, float deltaTime);
 
     void collectIslandConstraints(
         const std::vector<ecs::Entity>& island,
@@ -147,6 +153,8 @@ public:
     void solvePositionConstraints(collision::ContactManifold& manifold, float deltaTime);
     void resolveDistanceConstraint(collision::DistanceConstraint& constraint, float deltaTime);
     void resolveRevoluteConstraint(collision::RevoluteConstraint& constraint, float deltaTime);
+    void resolveFixedConstraint(collision::FixedConstraint& constraint, float deltaTime);
+    void solveFixedConstraintPosition(collision::FixedConstraint& constraint, float deltaTime);
 };
 
 } // namespace Baryon::systems

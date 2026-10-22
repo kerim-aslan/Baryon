@@ -248,7 +248,7 @@ void testDegenerateInputs() {
         auto& dc = sim.getRegistry().getComponent<DistanceConstraint>(anchor.getEntity());
         dc.isEnabled = false; // Devre dışı bırak
 
-        for (int i = 0; i < 30; ++i) {
+        for (int i = 0; i < 60; ++i) {
             sim.step(1.0f / 60.0f);
         }
 

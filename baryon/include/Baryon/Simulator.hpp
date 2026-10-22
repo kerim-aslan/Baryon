@@ -324,6 +324,47 @@ public:
         mRegistry.addComponent(a.getEntity(), constraint);
     }
 
+    /**
+     * @brief İki cismi birbirine tamamen sabitler (kaynaklar / weld).
+     * @details 6 serbestlik derecesinin tümünü kilitler; cisimler tek bir katı gövde gibi davranır.
+     * @param a Birinci cisim.
+     * @param b İkinci cisim.
+     * @param anchorA Birinci cisim üzerindeki yerel bağlantı noktası.
+     * @param anchorB İkinci cisim üzerindeki yerel bağlantı noktası.
+     */
+    void createFixedConstraint(Body& a, Body& b, 
+                              const Vector3& anchorA, const Vector3& anchorB) {
+        Quaternion relOrientation = Quaternion::identity();
+        if (mRegistry.hasComponent<Pose>(a.getEntity()) && mRegistry.hasComponent<Pose>(b.getEntity())) {
+            const auto& poseA = mRegistry.getComponent<Pose>(a.getEntity());
+            const auto& poseB = mRegistry.getComponent<Pose>(b.getEntity());
+            relOrientation = poseA.orientation.getInverse() * poseB.orientation;
+        }
+        collision::FixedConstraint constraint(a.getEntity(), b.getEntity(), anchorA, anchorB, relOrientation);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
+    /**
+     * @brief İki cismi mevcut konum ve yönelimlerinde birbirine kaynaklar.
+     * @param a Birinci cisim.
+     * @param b İkinci cisim.
+     */
+    void createFixedConstraint(Body& a, Body& b) {
+        Vector3 anchorA(0.0f, 0.0f, 0.0f);
+        Vector3 anchorB(0.0f, 0.0f, 0.0f);
+        Quaternion relOrientation = Quaternion::identity();
+        if (mRegistry.hasComponent<Pose>(a.getEntity()) && mRegistry.hasComponent<Pose>(b.getEntity())) {
+            const auto& poseA = mRegistry.getComponent<Pose>(a.getEntity());
+            const auto& poseB = mRegistry.getComponent<Pose>(b.getEntity());
+            Vector3 worldMid = (poseA.position + poseB.position) * 0.5f;
+            anchorA = poseA.orientation.getInverse() * (worldMid - poseA.position);
+            anchorB = poseB.orientation.getInverse() * (worldMid - poseB.position);
+            relOrientation = poseA.orientation.getInverse() * poseB.orientation;
+        }
+        collision::FixedConstraint constraint(a.getEntity(), b.getEntity(), anchorA, anchorB, relOrientation);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
     /// @}
 
     /// @name Ayarlar ve Durum Kaydı
