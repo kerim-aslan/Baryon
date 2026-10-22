@@ -174,6 +174,7 @@ public:
     void solvePositionConstraints(collision::ContactManifold& manifold, float deltaTime);
     void resolveDistanceConstraint(collision::DistanceConstraint& constraint, float deltaTime);
     void resolveRevoluteConstraint(collision::RevoluteConstraint& constraint, float deltaTime);
+    void solveRevoluteConstraintPosition(collision::RevoluteConstraint& constraint, float deltaTime);
     void resolveFixedConstraint(collision::FixedConstraint& constraint, float deltaTime);
     void solveFixedConstraintPosition(collision::FixedConstraint& constraint, float deltaTime);
     void resolveBallSocketConstraint(collision::BallSocketConstraint& constraint, float deltaTime);

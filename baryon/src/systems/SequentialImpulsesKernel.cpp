@@ -105,8 +105,11 @@ void SequentialImpulsesKernel::solveConstraintPosition(
 
 void SequentialImpulsesKernel::prepareConstraint(
     collision::RevoluteConstraint &constraint, float deltaTime) {
-  (void)constraint;
   (void)deltaTime;
+  constraint.accumulatedImpulsePoint = Vector3(0.0f, 0.0f, 0.0f);
+  constraint.accumulatedImpulseHinge = Vector3(0.0f, 0.0f, 0.0f);
+  constraint.accumulatedMotorImpulse = 0.0f;
+  constraint.accumulatedLimitImpulse = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -121,8 +124,7 @@ void SequentialImpulsesKernel::solveConstraintVelocity(
 
 void SequentialImpulsesKernel::solveConstraintPosition(
     collision::RevoluteConstraint &constraint, float deltaTime) {
-  (void)constraint;
-  (void)deltaTime;
+  solveRevoluteConstraintPosition(constraint, deltaTime);
 }
 
 void SequentialImpulsesKernel::prepareConstraint(
@@ -1034,6 +1036,200 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
     float jAng2 = -relAngVel.dot(u2) / (invIA_u2 + invIB_u2);
     motionA.angularVelocity += massA.inverseInertiaTensor * (u2 * jAng2);
     motionB.angularVelocity -= massB.inverseInertiaTensor * (u2 * jAng2);
+  }
+
+  // AŞAMA 3: Açısal Motor (Menteşe Ekseni Boyunca)
+  float invIA_axis = (massA.inverseInertiaTensor * axisA_World).dot(axisA_World);
+  float invIB_axis = (massB.inverseInertiaTensor * axisA_World).dot(axisA_World);
+  float invAngMassAxis = invIA_axis + invIB_axis;
+
+  if (constraint.enableMotor && constraint.maxMotorTorque > 0.0f && invAngMassAxis > 1e-6f && deltaTime > 0.0f) {
+    float curRelSpeed = (motionB.angularVelocity - motionA.angularVelocity).dot(axisA_World);
+    float deltaW = constraint.motorSpeed - curRelSpeed;
+    float jMotor = deltaW / invAngMassAxis;
+    float maxImpulse = constraint.maxMotorTorque * deltaTime;
+    float oldImpulse = constraint.accumulatedMotorImpulse;
+    constraint.accumulatedMotorImpulse = std::clamp(oldImpulse + jMotor, -maxImpulse, maxImpulse);
+    float dImpulse = constraint.accumulatedMotorImpulse - oldImpulse;
+
+    Vector3 angImpulse = axisA_World * dImpulse;
+    motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
+    motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
+  }
+
+  // AŞAMA 4: Açısal Limitler (Menteşe Ekseni Boyunca Alt/Üst Sınır)
+  if (constraint.enableLimit && invAngMassAxis > 1e-6f) {
+    Vector3 a_A = constraint.hingeAxisLocalA.getNormalized();
+    Vector3 u_localA;
+    if (std::abs(a_A.x) >= 0.57735f)
+      u_localA = Vector3(a_A.y, -a_A.x, 0.0f).getNormalized();
+    else
+      u_localA = Vector3(0.0f, a_A.z, -a_A.y).getNormalized();
+    Vector3 v_localA = a_A.cross(u_localA);
+    Vector3 u_localB = constraint.initialRelativeOrientation.getInverse() * u_localA;
+
+    Vector3 u_worldA = poseA.orientation * u_localA;
+    Vector3 v_worldA = poseA.orientation * v_localA;
+    Vector3 u_worldB = poseB.orientation * u_localB;
+    float currentAngle = std::atan2(u_worldB.dot(v_worldA), u_worldB.dot(u_worldA));
+
+    float curRelSpeed = (motionB.angularVelocity - motionA.angularVelocity).dot(axisA_World);
+    if (currentAngle <= constraint.lowerAngleLimit) {
+      float deltaW = -curRelSpeed;
+      float jLimit = deltaW / invAngMassAxis;
+      float oldImpulse = constraint.accumulatedLimitImpulse;
+      constraint.accumulatedLimitImpulse = std::max(0.0f, oldImpulse + jLimit);
+      float dImpulse = constraint.accumulatedLimitImpulse - oldImpulse;
+
+      Vector3 angImpulse = axisA_World * dImpulse;
+      motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
+      motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
+    } else if (currentAngle >= constraint.upperAngleLimit) {
+      float deltaW = -curRelSpeed;
+      float jLimit = deltaW / invAngMassAxis;
+      float oldImpulse = constraint.accumulatedLimitImpulse;
+      constraint.accumulatedLimitImpulse = std::min(0.0f, oldImpulse + jLimit);
+      float dImpulse = constraint.accumulatedLimitImpulse - oldImpulse;
+
+      Vector3 angImpulse = axisA_World * dImpulse;
+      motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
+      motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
+    } else {
+      constraint.accumulatedLimitImpulse = 0.0f;
+    }
+  }
+}
+
+void SequentialImpulsesKernel::solveRevoluteConstraintPosition(
+    collision::RevoluteConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+
+  // 1. Doğrusal Konum Düzeltmesi (Split Impulse)
+  Vector3 vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+  Vector3 vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+  Vector3 effA = pA + vSplitA * deltaTime;
+  Vector3 effB = pB + vSplitB * deltaTime;
+  Vector3 dEff = effB - effA;
+  Vector3 relSplitVel = vSplitB - vSplitA;
+
+  const float splitFactorLinear = 0.8f;
+  for (int axis = 0; axis < 3; ++axis) {
+    Vector3 n(axis == 0 ? 1.0f : 0.0f, axis == 1 ? 1.0f : 0.0f, axis == 2 ? 1.0f : 0.0f);
+    float error = dEff.dot(n);
+    Vector3 rACrossN = rA.cross(n);
+    Vector3 rBCrossN = rB.cross(n);
+    float invMassSum = massA.inverseMass + massB.inverseMass +
+                       (massA.inverseInertiaTensor * rACrossN).dot(rACrossN) +
+                       (massB.inverseInertiaTensor * rBCrossN).dot(rBCrossN);
+    if (invMassSum > 1e-6f) {
+      float bias = error * (splitFactorLinear / deltaTime);
+      float deltaV = -(relSplitVel.dot(n) + bias);
+      float j = deltaV / invMassSum;
+      Vector3 impulse = n * j;
+
+      motionB.splitLinearVelocity += impulse * massB.inverseMass;
+      motionB.splitAngularVelocity += massB.inverseInertiaTensor * rB.cross(impulse);
+      motionA.splitLinearVelocity -= impulse * massA.inverseMass;
+      motionA.splitAngularVelocity -= massA.inverseInertiaTensor * rA.cross(impulse);
+
+      vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+      vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+      relSplitVel = vSplitB - vSplitA;
+      effA = pA + vSplitA * deltaTime;
+      effB = pB + vSplitB * deltaTime;
+      dEff = effB - effA;
+    }
+  }
+
+  // 2. Menteşe Dışı Açısal Düzeltme (u1 ve u2 eksenleri)
+  Vector3 axisA_World = (poseA.orientation * constraint.hingeAxisLocalA).getNormalized();
+  Vector3 u1, u2;
+  if (std::abs(axisA_World.x) >= 0.57735f)
+    u1 = Vector3(axisA_World.y, -axisA_World.x, 0.0f).getNormalized();
+  else
+    u1 = Vector3(0.0f, axisA_World.z, -axisA_World.y).getNormalized();
+  u2 = axisA_World.cross(u1);
+
+  Vector3 relSplitAngVel = motionB.splitAngularVelocity - motionA.splitAngularVelocity;
+  for (const Vector3 &uAxis : {u1, u2}) {
+    float invIA = (massA.inverseInertiaTensor * uAxis).dot(uAxis);
+    float invIB = (massB.inverseInertiaTensor * uAxis).dot(uAxis);
+    float invAngSum = invIA + invIB;
+    if (invAngSum > 1e-6f) {
+      float deltaW = -relSplitAngVel.dot(uAxis);
+      float jAng = deltaW / invAngSum;
+      Vector3 angImpulse = uAxis * jAng;
+      motionB.splitAngularVelocity += massB.inverseInertiaTensor * angImpulse;
+      motionA.splitAngularVelocity -= massA.inverseInertiaTensor * angImpulse;
+      relSplitAngVel = motionB.splitAngularVelocity - motionA.splitAngularVelocity;
+    }
+  }
+
+  // 3. Açısal Sınırlar (Limit) Split Impulse
+  if (constraint.enableLimit) {
+    Vector3 a_A = constraint.hingeAxisLocalA.getNormalized();
+    Vector3 u_localA;
+    if (std::abs(a_A.x) >= 0.57735f)
+      u_localA = Vector3(a_A.y, -a_A.x, 0.0f).getNormalized();
+    else
+      u_localA = Vector3(0.0f, a_A.z, -a_A.y).getNormalized();
+    Vector3 v_localA = a_A.cross(u_localA);
+    Vector3 u_localB = constraint.initialRelativeOrientation.getInverse() * u_localA;
+
+    Vector3 u_worldA = poseA.orientation * u_localA;
+    Vector3 v_worldA = poseA.orientation * v_localA;
+    Vector3 u_worldB = poseB.orientation * u_localB;
+    float currentAngle = std::atan2(u_worldB.dot(v_worldA), u_worldB.dot(u_worldA));
+
+    float invIA_axis = (massA.inverseInertiaTensor * axisA_World).dot(axisA_World);
+    float invIB_axis = (massB.inverseInertiaTensor * axisA_World).dot(axisA_World);
+    float invAngMassAxis = invIA_axis + invIB_axis;
+
+    if (invAngMassAxis > 1e-6f) {
+      if (currentAngle < constraint.lowerAngleLimit) {
+        float violation = currentAngle - constraint.lowerAngleLimit;
+        float bias = violation * (0.8f / deltaTime);
+        float deltaW = -(relSplitAngVel.dot(axisA_World) + bias);
+        float j = deltaW / invAngMassAxis;
+        if (j > 0.0f) {
+          Vector3 angImpulse = axisA_World * j;
+          motionB.splitAngularVelocity += massB.inverseInertiaTensor * angImpulse;
+          motionA.splitAngularVelocity -= massA.inverseInertiaTensor * angImpulse;
+        }
+      } else if (currentAngle > constraint.upperAngleLimit) {
+        float violation = currentAngle - constraint.upperAngleLimit;
+        float bias = violation * (0.8f / deltaTime);
+        float deltaW = -(relSplitAngVel.dot(axisA_World) + bias);
+        float j = deltaW / invAngMassAxis;
+        if (j < 0.0f) {
+          Vector3 angImpulse = axisA_World * j;
+          motionB.splitAngularVelocity += massB.inverseInertiaTensor * angImpulse;
+          motionA.splitAngularVelocity -= massA.inverseInertiaTensor * angImpulse;
+        }
+      }
+    }
   }
 }
 

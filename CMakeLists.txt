@@ -261,6 +261,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SpringConstraintTest.cpp")
     add_test(NAME SpringConstraintTest COMMAND SpringConstraintTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RevoluteConstraintTest.cpp")
+    add_executable(RevoluteConstraintTest tests/RevoluteConstraintTest.cpp)
+    target_link_libraries(RevoluteConstraintTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME RevoluteConstraintTest COMMAND RevoluteConstraintTest)
+endif()
+
 
 
 # Headless Physics Harness Library & Executable (Faz 0.1)

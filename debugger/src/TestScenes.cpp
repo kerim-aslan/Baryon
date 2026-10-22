@@ -336,26 +336,40 @@ void TestScenes::setupRevoluteHinge(Simulator& sim) {
     Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
     sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(20.0f, 0.5f, 20.0f))}).setBodyType(Core::BodyType::Static);
 
-    // Sabit Dikey Direk (Post / Hinge Anchor)
-    Pose postPose(Vector3(0.0f, 2.0f, 0.0f));
+    // 1. Sol: Limitli Salınan Kapı Kanadı (Revolute Limits: -1.57 ila +1.57 rad)
+    Pose postPose(Vector3(-3.0f, 2.0f, 0.0f));
     Body post = sim.createBody(postPose, collision::CollisionShape{collision::BoxShape(Vector3(0.2f, 2.0f, 0.2f))});
     post.setBodyType(Core::BodyType::Static);
 
-    // Dikey Kapi Kanadi (Dynamic Door: genislik 1.6m, yukseklik 2.0m, kalinlik 0.1m)
-    Pose doorPose(Vector3(1.0f, 2.0f, 0.0f));
+    Pose doorPose(Vector3(-2.0f, 2.0f, 0.0f));
     Body door = sim.createBody(doorPose, collision::CollisionShape{collision::BoxShape(Vector3(0.8f, 1.0f, 0.06f))});
     door.setBodyType(Core::BodyType::Dynamic);
-    door.setMass(4.0f);
+    (void)door.setMass(4.0f);
 
-    // Menteşe Kısıtı (RevoluteConstraint - Y ekseni etrafında)
     sim.createRevoluteConstraint(post, door,
         Vector3(0.0f, 0.0f, 0.0f),
         Vector3(-0.8f, 0.0f, 0.0f),
         Vector3(0.0f, 1.0f, 0.0f),
         Vector3(0.0f, 1.0f, 0.0f));
+    sim.setRevoluteLimits(post, -1.57f, 1.57f);
+    door.applyAngularImpulse(Vector3(0.0f, 25.0f, 0.0f));
 
-    // Kapiya baslangic donme itmesi (Acisal itme) ver
-    door.applyAngularImpulse(Vector3(0.0f, 15.0f, 0.0f));
+    // 2. Sağ: Sürekli Dönen Motorlu Volan / Çark (Revolute Motor: 8 rad/s, 30 N*m)
+    Pose axlePose(Vector3(3.0f, 2.0f, 0.0f));
+    Body axle = sim.createBody(axlePose, collision::CollisionShape{collision::BoxShape(Vector3(0.2f, 2.0f, 0.2f))});
+    axle.setBodyType(Core::BodyType::Static);
+
+    Pose wheelPose(Vector3(3.0f, 2.0f, 0.5f));
+    Body wheel = sim.createBody(wheelPose, collision::CollisionShape{collision::CylinderShape(1.0f, 0.2f)});
+    wheel.setBodyType(Core::BodyType::Dynamic);
+    (void)wheel.setMass(3.0f);
+
+    sim.createRevoluteConstraint(axle, wheel,
+        Vector3(0.0f, 0.0f, 0.5f),
+        Vector3(0.0f, 0.0f, 0.0f),
+        Vector3(0.0f, 0.0f, 1.0f),
+        Vector3(0.0f, 0.0f, 1.0f));
+    sim.setRevoluteMotor(axle, 8.0f, 30.0f);
 }
 
 void TestScenes::setupRollingResistance(Simulator& sim) {
