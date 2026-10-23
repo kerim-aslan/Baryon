@@ -83,8 +83,9 @@ void SequentialImpulsesKernel::collectIslandManifolds(
 
 void SequentialImpulsesKernel::prepareConstraint(
     collision::DistanceConstraint &constraint, float deltaTime) {
-  (void)constraint;
   (void)deltaTime;
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -110,6 +111,8 @@ void SequentialImpulsesKernel::prepareConstraint(
   constraint.accumulatedImpulseHinge = Vector3(0.0f, 0.0f, 0.0f);
   constraint.accumulatedMotorImpulse = 0.0f;
   constraint.accumulatedLimitImpulse = 0.0f;
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -129,8 +132,9 @@ void SequentialImpulsesKernel::solveConstraintPosition(
 
 void SequentialImpulsesKernel::prepareConstraint(
     collision::FixedConstraint &constraint, float deltaTime) {
-  (void)constraint;
   (void)deltaTime;
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -152,6 +156,8 @@ void SequentialImpulsesKernel::prepareConstraint(
     collision::BallSocketConstraint &constraint, float deltaTime) {
   (void)deltaTime;
   constraint.accumulatedImpulseLinear = Vector3(0.0f, 0.0f, 0.0f);
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -176,6 +182,8 @@ void SequentialImpulsesKernel::prepareConstraint(
   constraint.accumulatedImpulseAngular = Vector3(0.0f, 0.0f, 0.0f);
   constraint.motorImpulse = 0.0f;
   constraint.limitImpulse = 0.0f;
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -195,6 +203,8 @@ void SequentialImpulsesKernel::solveConstraintPosition(
 
 void SequentialImpulsesKernel::prepareConstraint(
     collision::SpringConstraint &constraint, float deltaTime) {
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
   if (deltaTime <= 0.0f)
     return;
   float k = std::max(0.0f, constraint.stiffness);
@@ -263,6 +273,8 @@ void SequentialImpulsesKernel::prepareConstraint(
   constraint.accumulatedImpulseLinear = Vector3(0.0f, 0.0f, 0.0f);
   constraint.accumulatedSwingImpulse = 0.0f;
   constraint.accumulatedTwistImpulse = 0.0f;
+  constraint.appliedImpulseLinear = 0.0f;
+  constraint.appliedImpulseAngular = 0.0f;
 }
 
 void SequentialImpulsesKernel::warmStartConstraint(
@@ -360,6 +372,44 @@ void SequentialImpulsesKernel::solveSingleIsland(
         }
       }, cv);
     }
+  }
+
+  // 2b. Eklem Kırılma Eşiği Kontrolü (Joint Breakage Check)
+  for (const auto &cv : localConstraints) {
+    std::visit([&](auto *c) {
+      if (c && c->isEnabled && !c->isBroken) {
+        bool broken = false;
+        if (c->appliedImpulseLinear > c->breakImpulse) {
+          broken = true;
+        } else if (deltaTime > 0.0f) {
+          float reactionForce = c->appliedImpulseLinear / deltaTime;
+          float reactionTorque = c->appliedImpulseAngular / deltaTime;
+          if (reactionForce > c->breakForce || reactionTorque > c->breakTorque) {
+            broken = true;
+          }
+        }
+        if (broken) {
+          c->isBroken = true;
+          c->isEnabled = false;
+          if (mRegistry.hasComponent<Core::BodyState>(c->entityA)) {
+            auto &stA = mRegistry.getComponent<Core::BodyState>(c->entityA);
+            stA.isSleeping = false;
+            stA.sleepTimer = 0.0f;
+          }
+          if (mRegistry.hasComponent<Core::BodyState>(c->entityB)) {
+            auto &stB = mRegistry.getComponent<Core::BodyState>(c->entityB);
+            stB.isSleeping = false;
+            stB.sleepTimer = 0.0f;
+          }
+          if (mJointBreakListener) {
+            mJointBreakListener->onJointBroken(c->entityA, c->entityB, c->appliedImpulseLinear);
+          }
+          if (mJointBreakCallback) {
+            mJointBreakCallback(c->entityA, c->entityB, c->appliedImpulseLinear);
+          }
+        }
+      }
+    }, cv);
   }
 
   // 3. Pozisyon İterasyonları: Split Impulse
@@ -968,6 +1018,7 @@ void SequentialImpulsesKernel::resolveDistanceConstraint(
   // 6. Gerekli itme kuvvetini hesapla ve sertlik (stiffness) ile uygula
   float j = (-relVel - bias) / invMassSum;
   j *= std::clamp(constraint.stiffness, 0.0f, 1.0f);
+  constraint.appliedImpulseLinear += std::abs(j);
 
   Vector3 impulse = u * j;
 
@@ -1021,6 +1072,7 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
     if (invMassSum > 1e-6f) {
       float deltaV = -relVel.dot(n);
       float j = deltaV / invMassSum;
+      constraint.appliedImpulseLinear += std::abs(j);
       Vector3 impulse = n * j;
       motionA.linearVelocity += impulse * massA.inverseMass;
       motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
@@ -1048,6 +1100,7 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
   float invIB_u1 = (massB.inverseInertiaTensor * u1).dot(u1);
   if (invIA_u1 + invIB_u1 > 1e-6f) {
     float jAng1 = -relAngVel.dot(u1) / (invIA_u1 + invIB_u1);
+    constraint.appliedImpulseAngular += std::abs(jAng1);
     motionA.angularVelocity += massA.inverseInertiaTensor * (u1 * jAng1);
     motionB.angularVelocity -= massB.inverseInertiaTensor * (u1 * jAng1);
   }
@@ -1057,6 +1110,7 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
   float invIB_u2 = (massB.inverseInertiaTensor * u2).dot(u2);
   if (invIA_u2 + invIB_u2 > 1e-6f) {
     float jAng2 = -relAngVel.dot(u2) / (invIA_u2 + invIB_u2);
+    constraint.appliedImpulseAngular += std::abs(jAng2);
     motionA.angularVelocity += massA.inverseInertiaTensor * (u2 * jAng2);
     motionB.angularVelocity -= massB.inverseInertiaTensor * (u2 * jAng2);
   }
@@ -1074,6 +1128,7 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
     float oldImpulse = constraint.accumulatedMotorImpulse;
     constraint.accumulatedMotorImpulse = std::clamp(oldImpulse + jMotor, -maxImpulse, maxImpulse);
     float dImpulse = constraint.accumulatedMotorImpulse - oldImpulse;
+    constraint.appliedImpulseAngular += std::abs(dImpulse);
 
     Vector3 angImpulse = axisA_World * dImpulse;
     motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
@@ -1103,6 +1158,7 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
       float oldImpulse = constraint.accumulatedLimitImpulse;
       constraint.accumulatedLimitImpulse = std::max(0.0f, oldImpulse + jLimit);
       float dImpulse = constraint.accumulatedLimitImpulse - oldImpulse;
+      constraint.appliedImpulseAngular += std::abs(dImpulse);
 
       Vector3 angImpulse = axisA_World * dImpulse;
       motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
@@ -1113,6 +1169,7 @@ void SequentialImpulsesKernel::resolveRevoluteConstraint(
       float oldImpulse = constraint.accumulatedLimitImpulse;
       constraint.accumulatedLimitImpulse = std::min(0.0f, oldImpulse + jLimit);
       float dImpulse = constraint.accumulatedLimitImpulse - oldImpulse;
+      constraint.appliedImpulseAngular += std::abs(dImpulse);
 
       Vector3 angImpulse = axisA_World * dImpulse;
       motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
@@ -1301,6 +1358,7 @@ void SequentialImpulsesKernel::resolveFixedConstraint(
     if (invMassSum > 1e-6f) {
       float deltaV = -(relVel.dot(n) + linearBias.dot(n));
       float j = deltaV / invMassSum;
+      constraint.appliedImpulseLinear += std::abs(j);
       Vector3 impulse = n * j;
       motionA.linearVelocity += impulse * massA.inverseMass;
       motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
@@ -1335,6 +1393,7 @@ void SequentialImpulsesKernel::resolveFixedConstraint(
     if (invAngMass > 1e-6f) {
       float deltaW = -(relAngVel.dot(a) - angularBias.dot(a));
       float jAng = deltaW / invAngMass;
+      constraint.appliedImpulseAngular += std::abs(jAng);
       Vector3 angImpulse = a * jAng;
       motionA.angularVelocity += massA.inverseInertiaTensor * angImpulse;
       motionB.angularVelocity -= massB.inverseInertiaTensor * angImpulse;
@@ -1482,6 +1541,7 @@ void SequentialImpulsesKernel::resolveBallSocketConstraint(
     Matrix3x3 invK = K.getInverse();
     Vector3 impulse = invK * (-relVel);
     constraint.accumulatedImpulseLinear += impulse;
+    constraint.appliedImpulseLinear += impulse.length();
 
     motionA.linearVelocity += impulse * massA.inverseMass;
     motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
@@ -1604,6 +1664,7 @@ void SequentialImpulsesKernel::resolvePrismaticConstraint(
     if (invMassSum > 1e-6f) {
       float deltaV = -relVel.dot(n);
       float j = deltaV / invMassSum;
+      constraint.appliedImpulseLinear += std::abs(j);
       Vector3 impulse = n * j;
 
       motionB.linearVelocity += impulse * massB.inverseMass;
@@ -1626,6 +1687,7 @@ void SequentialImpulsesKernel::resolvePrismaticConstraint(
     if (invAngMass > 1e-6f) {
       float deltaW = -relAngVel.dot(a);
       float jAng = deltaW / invAngMass;
+      constraint.appliedImpulseAngular += std::abs(jAng);
       Vector3 angImpulse = a * jAng;
       motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
       motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
@@ -1648,6 +1710,7 @@ void SequentialImpulsesKernel::resolvePrismaticConstraint(
       float oldImpulse = constraint.motorImpulse;
       constraint.motorImpulse = std::clamp(oldImpulse + j, -maxImpulse, maxImpulse);
       float dImpulse = constraint.motorImpulse - oldImpulse;
+      constraint.appliedImpulseLinear += std::abs(dImpulse);
 
       Vector3 impulse = u * dImpulse;
       motionB.linearVelocity += impulse * massB.inverseMass;
@@ -1675,6 +1738,7 @@ void SequentialImpulsesKernel::resolvePrismaticConstraint(
         float oldImpulse = constraint.limitImpulse;
         constraint.limitImpulse = std::max(0.0f, oldImpulse + j);
         float dImpulse = constraint.limitImpulse - oldImpulse;
+        constraint.appliedImpulseLinear += std::abs(dImpulse);
 
         Vector3 impulse = u * dImpulse;
         motionB.linearVelocity += impulse * massB.inverseMass;
@@ -1687,6 +1751,7 @@ void SequentialImpulsesKernel::resolvePrismaticConstraint(
         float oldImpulse = constraint.limitImpulse;
         constraint.limitImpulse = std::min(0.0f, oldImpulse + j);
         float dImpulse = constraint.limitImpulse - oldImpulse;
+        constraint.appliedImpulseLinear += std::abs(dImpulse);
 
         Vector3 impulse = u * dImpulse;
         motionB.linearVelocity += impulse * massB.inverseMass;
@@ -1889,6 +1954,7 @@ void SequentialImpulsesKernel::resolveSpringConstraint(
 
   float deltaLambda = -(relSpeed + bias + constraint.gamma * constraint.accumulatedImpulse) / effectiveMass;
   constraint.accumulatedImpulse += deltaLambda;
+  constraint.appliedImpulseLinear += std::abs(deltaLambda);
 
   Vector3 impulse = u * deltaLambda;
   motionB.linearVelocity += impulse * massB.inverseMass;
@@ -1951,6 +2017,7 @@ void SequentialImpulsesKernel::resolveConeTwistConstraint(
     const float baumgarteLinear = 0.35f;
     Vector3 linearBias = posError * (baumgarteLinear / deltaTime);
     Vector3 impulse = invK * (-(relVel + linearBias));
+    constraint.appliedImpulseLinear += impulse.length();
 
     motionA.linearVelocity += impulse * massA.inverseMass;
     motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
@@ -1981,6 +2048,7 @@ void SequentialImpulsesKernel::resolveConeTwistConstraint(
             float oldImpulse = constraint.accumulatedSwingImpulse;
             constraint.accumulatedSwingImpulse = std::min(0.0f, oldImpulse + j);
             float dImpulse = constraint.accumulatedSwingImpulse - oldImpulse;
+            constraint.appliedImpulseAngular += std::abs(dImpulse);
 
             Vector3 angImpulse = swingAxis * dImpulse;
             motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
@@ -2032,6 +2100,7 @@ void SequentialImpulsesKernel::resolveConeTwistConstraint(
             float oldImpulse = constraint.accumulatedTwistImpulse;
             constraint.accumulatedTwistImpulse = std::max(0.0f, oldImpulse + j);
             float dImpulse = constraint.accumulatedTwistImpulse - oldImpulse;
+            constraint.appliedImpulseAngular += std::abs(dImpulse);
 
             Vector3 angImpulse = uAvg * dImpulse;
             motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
@@ -2044,6 +2113,7 @@ void SequentialImpulsesKernel::resolveConeTwistConstraint(
             float oldImpulse = constraint.accumulatedTwistImpulse;
             constraint.accumulatedTwistImpulse = std::min(0.0f, oldImpulse + j);
             float dImpulse = constraint.accumulatedTwistImpulse - oldImpulse;
+            constraint.appliedImpulseAngular += std::abs(dImpulse);
 
             Vector3 angImpulse = uAvg * dImpulse;
             motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;

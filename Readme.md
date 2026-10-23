@@ -133,6 +133,7 @@ Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimar
 - **Prizmatik Kayar Eklem (`PrismaticConstraint`):** 1 serbest doğrusal kayma eksenine izin verir (1-DOF), eksen dışı kaymaları ve dönmeleri kilitler; alt/üst sınırlar ve doğrusal motor destekler.
 - **Sönümlü Yay / Yumuşak Mesafe (`SpringConstraint`):** Hooke Yasası ve sönümlü harmonik salınıcı modeline dayalı esnek mesafe kısıtı. Erin Catto soft-constraint (uyumluluk $\gamma$ ve bias $\beta$) formülasyonu ile yüksek sertlik ve büyük zaman adımlarında koşulsuz kararlı çalışır.
 - **Koni-Burulma / Ragdoll Eklemi (`ConeTwistConstraint`):** 3 ötelenme serbestliğini noktasal ankorla kilitler; koni şeklinde açısal salınıma (swing cone, $\theta \le \theta_{max}$) ve birincil eksen etrafında burulmaya (axial twist, $[\psi_{min}, \psi_{max}]$) anatomik sınırlar dahilinde izin verir. İnsan omuzu, kalça mafsalı ve ragdoll karakter fiziği için kullanılır.
+- **Eklem Kırılması ve Bildirim Sistemi (`Joint Breakage` & `onJointBroken`):** Tüm eklem tipleri üzerinde çizgisel kuvvet eşiği (`breakForce`), açısal tork eşiği (`breakTorque`) veya doğrudan itme eşiği (`breakImpulse`) tanımlanabilir. Ekleme binen reaksiyon kuvveti eşiği aştığında eklem otomatik kırılır (`isBroken = true; isEnabled = false;`), ada (island) sistemi kopan parçaları bağımsız adalara ayırır, gövdeler uykudan uyandırılır ve `JointBreakListener` ya da `std::function` geri çağırımı (`onJointBroken`) üzerinden bildirim fırlatılır.
 
 ---
 

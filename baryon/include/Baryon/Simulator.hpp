@@ -31,6 +31,8 @@
 #include "Baryon/collision/Ray.hpp"
 #include "Baryon/collision/Sweep.hpp"
 #include "Baryon/collision/CollisionListener.hpp"
+#include "Baryon/collision/JointBreakListener.hpp"
+#include <functional>
 
 #include <vector>
 
@@ -567,6 +569,76 @@ public:
             ctc.setLimits(swingLimit, lowerTwist, upperTwist);
         }
     }
+    /**
+     * @brief Bir cisim üzerindeki herhangi bir ekleme kırılma kuvveti ve tork eşikleri atar.
+     * @tparam ConstraintT Kısıt bileşen türü (FixedConstraint, BallSocketConstraint vb.).
+     * @param body Ekleme sahip gövde.
+     * @param maxForce Maksimum çizgisel kuvvet (Newton).
+     * @param maxTorque Maksimum açısal tork (Newton*metre).
+     */
+    template<typename ConstraintT>
+    void setConstraintBreakForce(Body& body, float maxForce, float maxTorque = 1e10f) {
+        if (mRegistry.hasComponent<ConstraintT>(body.getEntity())) {
+            auto& c = mRegistry.getComponent<ConstraintT>(body.getEntity());
+            c.setBreakForce(maxForce, maxTorque);
+        }
+    }
+
+    /**
+     * @brief Bir cisim üzerindeki herhangi bir ekleme doğrudan itme kırılma eşiği atar.
+     * @tparam ConstraintT Kısıt bileşen türü.
+     * @param body Ekleme sahip gövde.
+     * @param maxImpulse Maksimum reaksiyon itmesi (N*s).
+     */
+    template<typename ConstraintT>
+    void setConstraintBreakImpulse(Body& body, float maxImpulse) {
+        if (mRegistry.hasComponent<ConstraintT>(body.getEntity())) {
+            auto& c = mRegistry.getComponent<ConstraintT>(body.getEntity());
+            c.setBreakImpulse(maxImpulse);
+        }
+    }
+
+    /**
+     * @brief Cismin ekleminin kırılmış olup olmadığını sorgular.
+     * @tparam ConstraintT Kısıt bileşen türü.
+     * @param body Sorgulanacak gövde.
+     * @return Eklem kırılmışsa true, sağlamsa veya eklem yoksa false.
+     */
+    template<typename ConstraintT>
+    [[nodiscard]] bool isConstraintBroken(const Body& body) const {
+        if (mRegistry.hasComponent<ConstraintT>(body.getEntity())) {
+            return mRegistry.getComponent<ConstraintT>(body.getEntity()).isBroken;
+        }
+        return false;
+    }
+
+    /**
+     * @brief Cismin üzerindeki eklem kısıtını gösterici olarak döndürür.
+     * @tparam ConstraintT Kısıt bileşen türü.
+     * @param body Sorgulanacak gövde.
+     * @return Eklem varsa göstericisi, yoksa nullptr.
+     */
+    template<typename ConstraintT>
+    ConstraintT* getConstraint(Body& body) {
+        if (mRegistry.hasComponent<ConstraintT>(body.getEntity())) {
+            return &mRegistry.getComponent<ConstraintT>(body.getEntity());
+        }
+        return nullptr;
+    }
+
+    /**
+     * @brief Cismin üzerindeki eklem kısıtını sabit gösterici olarak döndürür.
+     * @tparam ConstraintT Kısıt bileşen türü.
+     * @param body Sorgulanacak gövde.
+     * @return Eklem varsa göstericisi, yoksa nullptr.
+     */
+    template<typename ConstraintT>
+    const ConstraintT* getConstraint(const Body& body) const {
+        if (mRegistry.hasComponent<ConstraintT>(body.getEntity())) {
+            return &mRegistry.getComponent<ConstraintT>(body.getEntity());
+        }
+        return nullptr;
+    }
 
     /// @}
 
@@ -623,6 +695,22 @@ public:
      */
     void setCollisionListener(CollisionListener* listener) {
         mCollisionSystem.setListener(listener);
+    }
+
+    /**
+     * @brief Eklem / Kısıtlama kırılma olaylarını dinleyecek kullanıcı arayüzünü bağlar.
+     * @param listener Kırılma dinleyicisi nesnesi göstericisi.
+     */
+    void setJointBreakListener(JointBreakListener* listener) {
+        mSolver.setJointBreakListener(listener);
+    }
+
+    /**
+     * @brief Eklem / Kısıtlama kırıldığında tetiklenecek lambda/fonksiyonu bağlar.
+     * @param callback Geri çağırım fonksiyonu.
+     */
+    void setJointBreakCallback(std::function<void(ecs::Entity, ecs::Entity, float)> callback) {
+        mSolver.setJointBreakCallback(std::move(callback));
     }
 
     /**

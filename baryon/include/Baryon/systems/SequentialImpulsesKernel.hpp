@@ -27,8 +27,10 @@
 #include "Baryon/collision/PrismaticConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include "Baryon/collision/SpringConstraint.hpp"
+#include "Baryon/collision/JointBreakListener.hpp"
 #include <vector>
 #include <unordered_map>
+#include <functional>
 
 namespace Baryon::systems {
 
@@ -41,6 +43,8 @@ namespace Baryon::systems {
 class SequentialImpulsesKernel {
 private:
     Core::Registry& mRegistry;
+    JointBreakListener* mJointBreakListener{nullptr};
+    std::function<void(ecs::Entity, ecs::Entity, float)> mJointBreakCallback{nullptr};
 
     void collectIslandManifolds(
         const std::vector<ecs::Entity>& island,
@@ -149,6 +153,22 @@ private:
 
 public:
     explicit SequentialImpulsesKernel(Core::Registry& registry);
+
+    /**
+     * @brief Eklem kırılma olaylarını dinleyecek kullanıcı dinleyicisini bağlar.
+     * @param listener Dinleyici nesnesi göstericisi.
+     */
+    void setJointBreakListener(JointBreakListener* listener) {
+        mJointBreakListener = listener;
+    }
+
+    /**
+     * @brief Eklem kırılma olaylarında çağrılacak lambda/fonksiyonu bağlar.
+     * @param callback Geri çağırım fonksiyonu.
+     */
+    void setJointBreakCallback(std::function<void(ecs::Entity, ecs::Entity, float)> callback) {
+        mJointBreakCallback = std::move(callback);
+    }
 
     void execute(
         const std::vector<ecs::Entity>& island,

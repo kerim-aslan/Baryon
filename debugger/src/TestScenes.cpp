@@ -27,7 +27,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::PrismaticElevator: return "14. Prizmatik Kayar Eklem & Asansor (Prismatic Slider)";
         case SceneType::SpringSuspension: return "15. Yayli Suspansiyon & Sonumlu Salinim (Spring Joint)";
         case SceneType::ConeTwistRagdoll: return "16. Koni-Burulma Ragdoll Eklemi (Cone-Twist Ragdoll Joint)";
-        case SceneType::Sandbox: return "17. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::JointBreakage: return "17. Eklem Kirilmasi & Kopan Asma Kopru (Joint Breakage / Collapsing Bridge)";
+        case SceneType::Sandbox: return "18. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -68,6 +69,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "Hooke Yasasi ve sonumlu harmonik salinici (Damped Harmonic Oscillator) modelini test eder. Sira sira farkli sonumleme oranlarina (sonumsuz zeta=0, kritik sonumlu zeta=1, zayif sonumlu zeta=0.15) sahip yayli kutleler ve 4 tekerlekli araba suspansiyon sasisi yer alir.";
         case SceneType::ConeTwistRagdoll:
             return "Anatomik omuz ve ragdoll mafsalini test eder. 3B uzayda koni salinim limiti (swing cone) ve eksenel burulma limiti (axial twist) ile sabit omuza bagli serbest sallanan ve burulan insan kolu modelidir.";
+        case SceneType::JointBreakage:
+            return "Asiri yuk veya reaksiyon kuvveti altinda eklemlerin kirilmasini (Joint Breakage) gosterir. Ortadaki parcalara dusen agir yuk karsisinda sabit ve donel eklemler esik kuvvetini (breakForce) asarak kopar ve kopru ikiye ayrilarak parcalanir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -103,6 +106,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::PrismaticElevator: setupPrismaticElevator(sim); break;
         case SceneType::SpringSuspension: setupSpringSuspension(sim); break;
         case SceneType::ConeTwistRagdoll: setupConeTwistRagdoll(sim); break;
+        case SceneType::JointBreakage: setupJointBreakage(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -830,6 +834,82 @@ void TestScenes::setupConeTwistRagdoll(Simulator& sim) {
         auto& motionArm = sim.getRegistry().getComponent<Core::Motion>(upperArm.getEntity());
         motionArm.linearVelocity = Vector3(2.0f, 0.0f, 2.0f);
     }
+}
+
+void TestScenes::setupJointBreakage(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Zemin
+    Pose groundPose(Vector3(0.0f, 0.0f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(15.0f, 0.2f, 15.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // İki Ayaklı Asma Köprü (4 Parçalı Kalas)
+    Pose leftPillarPose(Vector3(-3.2f, 3.5f, 0.0f));
+    Body leftPillar = sim.createBody(leftPillarPose, collision::CollisionShape{collision::BoxShape(Vector3(0.3f, 3.5f, 0.8f))});
+    leftPillar.setBodyType(Core::BodyType::Static);
+
+    Pose rightPillarPose(Vector3(3.2f, 3.5f, 0.0f));
+    Body rightPillar = sim.createBody(rightPillarPose, collision::CollisionShape{collision::BoxShape(Vector3(0.3f, 3.5f, 0.8f))});
+    rightPillar.setBodyType(Core::BodyType::Static);
+
+    const float plankWidth = 0.65f;
+    const float plankThickness = 0.08f;
+    const float plankDepth = 0.8f;
+    const float plankMass = 2.0f;
+
+    Pose p0Pose(Vector3(-2.1f, 4.0f, 0.0f));
+    Body plank0 = sim.createBody(p0Pose, collision::CollisionShape{collision::BoxShape(Vector3(plankWidth, plankThickness, plankDepth))});
+    plank0.setBodyType(Core::BodyType::Dynamic);
+    (void)plank0.setMass(plankMass);
+
+    Pose p1Pose(Vector3(-0.7f, 4.0f, 0.0f));
+    Body plank1 = sim.createBody(p1Pose, collision::CollisionShape{collision::BoxShape(Vector3(plankWidth, plankThickness, plankDepth))});
+    plank1.setBodyType(Core::BodyType::Dynamic);
+    (void)plank1.setMass(plankMass);
+
+    Pose p2Pose(Vector3(0.7f, 4.0f, 0.0f));
+    Body plank2 = sim.createBody(p2Pose, collision::CollisionShape{collision::BoxShape(Vector3(plankWidth, plankThickness, plankDepth))});
+    plank2.setBodyType(Core::BodyType::Dynamic);
+    (void)plank2.setMass(plankMass);
+
+    Pose p3Pose(Vector3(2.1f, 4.0f, 0.0f));
+    Body plank3 = sim.createBody(p3Pose, collision::CollisionShape{collision::BoxShape(Vector3(plankWidth, plankThickness, plankDepth))});
+    plank3.setBodyType(Core::BodyType::Dynamic);
+    (void)plank3.setMass(plankMass);
+
+    // Kısıtlar:
+    // Sol kule - Kalas 0: Güçlü menteşe (kırılmaz)
+    sim.createRevoluteConstraint(leftPillar, plank0, 
+                                 Vector3(0.3f, 0.5f, 0.0f), 
+                                 Vector3(-plankWidth, 0.0f, 0.0f),
+                                 Vector3(0.0f, 0.0f, 1.0f), 
+                                 Vector3(0.0f, 0.0f, 1.0f));
+
+    // Kalas 0 - Kalas 1: Sağlam sabit eklem
+    sim.createFixedConstraint(plank0, plank1, Vector3(plankWidth, 0.0f, 0.0f), Vector3(-plankWidth, 0.0f, 0.0f));
+    sim.setConstraintBreakForce<collision::FixedConstraint>(plank0, 500.0f);
+
+    // Kalas 1 - Kalas 2: ORTADAKİ HASSAS KOPMA NOKTASI (breakForce = 80 N)
+    sim.createFixedConstraint(plank1, plank2, Vector3(plankWidth, 0.0f, 0.0f), Vector3(-plankWidth, 0.0f, 0.0f));
+    sim.setConstraintBreakForce<collision::FixedConstraint>(plank1, 80.0f);
+
+    // Kalas 2 - Kalas 3: Sağlam sabit eklem
+    sim.createFixedConstraint(plank2, plank3, Vector3(plankWidth, 0.0f, 0.0f), Vector3(-plankWidth, 0.0f, 0.0f));
+    sim.setConstraintBreakForce<collision::FixedConstraint>(plank2, 500.0f);
+
+    // Kalas 3 - Sağ kule: Güçlü menteşe (kırılmaz)
+    sim.createRevoluteConstraint(plank3, rightPillar,
+                                 Vector3(plankWidth, 0.0f, 0.0f),
+                                 Vector3(-0.3f, 0.5f, 0.0f),
+                                 Vector3(0.0f, 0.0f, 1.0f),
+                                 Vector3(0.0f, 0.0f, 1.0f));
+
+    // Köprünün üstüne düşecek ağır kaya
+    Pose boulderPose(Vector3(0.0f, 7.5f, 0.0f));
+    Body boulder = sim.createBody(boulderPose, collision::CollisionShape{collision::SphereShape(0.45f)});
+    boulder.setBodyType(Core::BodyType::Dynamic);
+    (void)boulder.setMass(25.0f);
 }
 
 } // namespace Baryon::Debugger

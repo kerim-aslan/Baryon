@@ -273,6 +273,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ConeTwistConstraintTest.cpp")
     add_test(NAME ConeTwistConstraintTest COMMAND ConeTwistConstraintTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/JointBreakageTest.cpp")
+    add_executable(JointBreakageTest tests/JointBreakageTest.cpp)
+    target_link_libraries(JointBreakageTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME JointBreakageTest COMMAND JointBreakageTest)
+endif()
+
 
 
 # Headless Physics Harness Library & Executable (Faz 0.1)

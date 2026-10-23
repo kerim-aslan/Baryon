@@ -194,6 +194,8 @@ public:
     auto &state = mRegistry->getComponent<Core::BodyState>(mEntity);
     float oldMass = massProps.mass;
     massProps.mass = mass;
+    state.isSleeping = false;
+    state.sleepTimer = 0.0f;
 
     if (state.type == Core::BodyType::Dynamic) {
       massProps.inverseMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;

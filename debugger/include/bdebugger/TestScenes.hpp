@@ -29,6 +29,7 @@ enum class SceneType {
     PrismaticElevator,
     SpringSuspension,
     ConeTwistRagdoll,
+    JointBreakage,
     Sandbox,
     Count
 };
@@ -52,6 +53,7 @@ private:
     static void setupPrismaticElevator(Simulator& sim);
     static void setupSpringSuspension(Simulator& sim);
     static void setupConeTwistRagdoll(Simulator& sim);
+    static void setupJointBreakage(Simulator& sim);
     static void setupSandbox(Simulator& sim);
     static void setupTriggerSensors(Simulator& sim);
     static void setupCollisionFiltering(Simulator& sim);
