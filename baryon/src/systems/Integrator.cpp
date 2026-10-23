@@ -69,9 +69,12 @@ void Integrator::integrateVelocities(float deltaTime) {
         float linDampFactor = 1.0f / (1.0f + motion.linearDamping * deltaTime);
         motion.linearVelocity *= linDampFactor;
 
-        // İvme hesaplama: a = F/m + g
+        // Doğrusal ivme ve sönümleme
         Vector3 linearAcceleration = mAccelerationField + (motion.externalForce * mass.inverseMass);
         motion.linearVelocity += linearAcceleration * deltaTime;
+        if (state.lockedAxes & Core::LockAxis::LinearX) motion.linearVelocity.x = 0.0f;
+        if (state.lockedAxes & Core::LockAxis::LinearY) motion.linearVelocity.y = 0.0f;
+        if (state.lockedAxes & Core::LockAxis::LinearZ) motion.linearVelocity.z = 0.0f;
 
         // --- Açısal Hız Entegrasyonu ---
         float angDampFactor = 1.0f / (1.0f + motion.angularDamping * deltaTime);
@@ -80,6 +83,9 @@ void Integrator::integrateVelocities(float deltaTime) {
         // Açısal İvme: α = I⁻¹τ
         Vector3 angularAcceleration = mass.inverseInertiaTensor * motion.externalTorque;
         motion.angularVelocity += angularAcceleration * deltaTime;
+        if (state.lockedAxes & Core::LockAxis::AngularX) motion.angularVelocity.x = 0.0f;
+        if (state.lockedAxes & Core::LockAxis::AngularY) motion.angularVelocity.y = 0.0f;
+        if (state.lockedAxes & Core::LockAxis::AngularZ) motion.angularVelocity.z = 0.0f;
 
         // Kuvvetleri sıfırla (Her karede kullanıcı tarafından yeniden uygulanmalıdır)
         motion.externalForce = Vector3(0.0f, 0.0f, 0.0f);
@@ -116,6 +122,9 @@ void Integrator::integratePositions(float deltaTime) {
         // Doğrusal Hareket: p = p + (v + v_split)·dt
         if (!state.ccdIntegrated) {
             Vector3 effectiveLinVel = motion.linearVelocity + motion.splitLinearVelocity;
+            if (state.lockedAxes & Core::LockAxis::LinearX) effectiveLinVel.x = 0.0f;
+            if (state.lockedAxes & Core::LockAxis::LinearY) effectiveLinVel.y = 0.0f;
+            if (state.lockedAxes & Core::LockAxis::LinearZ) effectiveLinVel.z = 0.0f;
             pose.position += effectiveLinVel * deltaTime;
         } else {
             state.ccdIntegrated = false;
@@ -123,20 +132,26 @@ void Integrator::integratePositions(float deltaTime) {
 
         // Açısal Hareket (Kuaterniyon türevi entegrasyonu)
         Vector3 effectiveAngVel = motion.angularVelocity + motion.splitAngularVelocity;
-        Quaternion spin(
-            effectiveAngVel.x,
-            effectiveAngVel.y,
-            effectiveAngVel.z,
-            0.0f
-        );
-        Quaternion qDot = spin * pose.orientation;
-        pose.orientation.x += qDot.x * deltaTime * 0.5f;
-        pose.orientation.y += qDot.y * deltaTime * 0.5f;
-        pose.orientation.z += qDot.z * deltaTime * 0.5f;
-        pose.orientation.w += qDot.w * deltaTime * 0.5f;
+        if (state.lockedAxes & Core::LockAxis::AngularX) effectiveAngVel.x = 0.0f;
+        if (state.lockedAxes & Core::LockAxis::AngularY) effectiveAngVel.y = 0.0f;
+        if (state.lockedAxes & Core::LockAxis::AngularZ) effectiveAngVel.z = 0.0f;
 
-        // Sayısal kararlılık için normalizasyon şarttır
-        pose.orientation.normalize();
+        if (effectiveAngVel.lengthSquare() > 1e-12f) {
+            Quaternion spin(
+                effectiveAngVel.x,
+                effectiveAngVel.y,
+                effectiveAngVel.z,
+                0.0f
+            );
+            Quaternion qDot = spin * pose.orientation;
+            pose.orientation.x += qDot.x * deltaTime * 0.5f;
+            pose.orientation.y += qDot.y * deltaTime * 0.5f;
+            pose.orientation.z += qDot.z * deltaTime * 0.5f;
+            pose.orientation.w += qDot.w * deltaTime * 0.5f;
+
+            // Sayısal kararlılık için normalizasyon şarttır
+            pose.orientation.normalize();
+        }
 
         // Split hızları sıfırla (sadece bu karedeki geometrik ayrılma içindi)
         motion.splitLinearVelocity = Vector3(0.0f, 0.0f, 0.0f);
@@ -145,6 +160,21 @@ void Integrator::integratePositions(float deltaTime) {
         // Dünya Uzayı Eylemsizliği: I_world⁻¹ = R · I_local⁻¹ · Rᵀ
         Matrix3x3 R = pose.getOrientationMatrix();
         mass.inverseInertiaTensor = R * mass.inverseLocalInertiaTensor * R.getTranspose();
+        if (state.lockedAxes & Core::LockAxis::AngularX) {
+            mass.inverseInertiaTensor.rows[0] = Vector3(0.0f, 0.0f, 0.0f);
+            mass.inverseInertiaTensor.rows[1].x = 0.0f;
+            mass.inverseInertiaTensor.rows[2].x = 0.0f;
+        }
+        if (state.lockedAxes & Core::LockAxis::AngularY) {
+            mass.inverseInertiaTensor.rows[1] = Vector3(0.0f, 0.0f, 0.0f);
+            mass.inverseInertiaTensor.rows[0].y = 0.0f;
+            mass.inverseInertiaTensor.rows[2].y = 0.0f;
+        }
+        if (state.lockedAxes & Core::LockAxis::AngularZ) {
+            mass.inverseInertiaTensor.rows[2] = Vector3(0.0f, 0.0f, 0.0f);
+            mass.inverseInertiaTensor.rows[0].z = 0.0f;
+            mass.inverseInertiaTensor.rows[1].z = 0.0f;
+        }
     }
 }
 

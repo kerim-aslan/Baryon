@@ -39,6 +39,28 @@
 
 namespace Baryon::systems {
 
+namespace {
+
+inline Vector3 computeInverseMassVector(float invMass, uint8_t lockedAxes) {
+  return Vector3(
+    (lockedAxes & Core::LockAxis::LinearX) ? 0.0f : invMass,
+    (lockedAxes & Core::LockAxis::LinearY) ? 0.0f : invMass,
+    (lockedAxes & Core::LockAxis::LinearZ) ? 0.0f : invMass
+  );
+}
+
+inline float computeDirectionalInverseMass(const Vector3 &invMassVec, const Vector3 &dir) {
+  return dir.x * dir.x * invMassVec.x +
+         dir.y * dir.y * invMassVec.y +
+         dir.z * dir.z * invMassVec.z;
+}
+
+inline Vector3 applyDirectionalImpulse(const Vector3 &impulse, const Vector3 &invMassVec) {
+  return Vector3(impulse.x * invMassVec.x, impulse.y * invMassVec.y, impulse.z * invMassVec.z);
+}
+
+} // namespace
+
 SequentialImpulsesKernel::SequentialImpulsesKernel(Core::Registry &registry)
     : mRegistry(registry) {}
 
@@ -426,6 +448,32 @@ void SequentialImpulsesKernel::solveSingleIsland(
       }, cv);
     }
   }
+
+  // Kilitli eksenlerdeki hızları sıfırla (sayısal artık birikimini engellemek için)
+  for (collision::ContactManifold *manifold : localManifolds) {
+    if (mRegistry.hasComponent<Core::BodyState>(manifold->entityA) &&
+        mRegistry.hasComponent<Core::Motion>(manifold->entityA)) {
+      const auto &stA = mRegistry.getComponent<Core::BodyState>(manifold->entityA);
+      auto &motA = mRegistry.getComponent<Core::Motion>(manifold->entityA);
+      if (stA.lockedAxes & Core::LockAxis::LinearX) { motA.linearVelocity.x = 0.0f; motA.splitLinearVelocity.x = 0.0f; }
+      if (stA.lockedAxes & Core::LockAxis::LinearY) { motA.linearVelocity.y = 0.0f; motA.splitLinearVelocity.y = 0.0f; }
+      if (stA.lockedAxes & Core::LockAxis::LinearZ) { motA.linearVelocity.z = 0.0f; motA.splitLinearVelocity.z = 0.0f; }
+      if (stA.lockedAxes & Core::LockAxis::AngularX) { motA.angularVelocity.x = 0.0f; motA.splitAngularVelocity.x = 0.0f; }
+      if (stA.lockedAxes & Core::LockAxis::AngularY) { motA.angularVelocity.y = 0.0f; motA.splitAngularVelocity.y = 0.0f; }
+      if (stA.lockedAxes & Core::LockAxis::AngularZ) { motA.angularVelocity.z = 0.0f; motA.splitAngularVelocity.z = 0.0f; }
+    }
+    if (mRegistry.hasComponent<Core::BodyState>(manifold->entityB) &&
+        mRegistry.hasComponent<Core::Motion>(manifold->entityB)) {
+      const auto &stB = mRegistry.getComponent<Core::BodyState>(manifold->entityB);
+      auto &motB = mRegistry.getComponent<Core::Motion>(manifold->entityB);
+      if (stB.lockedAxes & Core::LockAxis::LinearX) { motB.linearVelocity.x = 0.0f; motB.splitLinearVelocity.x = 0.0f; }
+      if (stB.lockedAxes & Core::LockAxis::LinearY) { motB.linearVelocity.y = 0.0f; motB.splitLinearVelocity.y = 0.0f; }
+      if (stB.lockedAxes & Core::LockAxis::LinearZ) { motB.linearVelocity.z = 0.0f; motB.splitLinearVelocity.z = 0.0f; }
+      if (stB.lockedAxes & Core::LockAxis::AngularX) { motB.angularVelocity.x = 0.0f; motB.splitAngularVelocity.x = 0.0f; }
+      if (stB.lockedAxes & Core::LockAxis::AngularY) { motB.angularVelocity.y = 0.0f; motB.splitAngularVelocity.y = 0.0f; }
+      if (stB.lockedAxes & Core::LockAxis::AngularZ) { motB.angularVelocity.z = 0.0f; motB.splitAngularVelocity.z = 0.0f; }
+    }
+  }
 }
 
 void SequentialImpulsesKernel::solveSingleIsland(
@@ -637,15 +685,25 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
 
   Core::BodyType typeA = Core::BodyType::Dynamic;
   Core::BodyType typeB = Core::BodyType::Dynamic;
-  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA))
-    typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
-  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB))
-    typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
+  uint8_t lockedAxesA = 0;
+  uint8_t lockedAxesB = 0;
+  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) {
+    const auto &stA = mRegistry.getComponent<Core::BodyState>(manifold.entityA);
+    typeA = stA.type;
+    lockedAxesA = stA.lockedAxes;
+  }
+  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) {
+    const auto &stB = mRegistry.getComponent<Core::BodyState>(manifold.entityB);
+    typeB = stB.type;
+    lockedAxesB = stB.lockedAxes;
+  }
 
   const float invMassA =
       (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
   const float invMassB =
       (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
+  const Vector3 invMassVecA = computeInverseMassVector(invMassA, lockedAxesA);
+  const Vector3 invMassVecB = computeInverseMassVector(invMassB, lockedAxesB);
   const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic)
                               ? massA.inverseInertiaTensor
                               : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -694,9 +752,9 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
                            (t1 * contact.tangentImpulse1) +
                            (t2 * contact.tangentImpulse2);
 
-    motionA.linearVelocity += totalImpulse * invMassA;
+    motionA.linearVelocity += applyDirectionalImpulse(totalImpulse, invMassVecA);
     motionA.angularVelocity += invIA * rA.cross(totalImpulse);
-    motionB.linearVelocity -= totalImpulse * invMassB;
+    motionB.linearVelocity -= applyDirectionalImpulse(totalImpulse, invMassVecB);
     motionB.angularVelocity -= invIB * rB.cross(totalImpulse);
   }
 }
@@ -704,7 +762,7 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
 void SequentialImpulsesKernel::solveContactNormal(
     collision::ContactPoint &contact,
     const Vector3 &rA, const Vector3 &rB, const Vector3 &n,
-    float invMassA, float invMassB,
+    const Vector3 &invMassA, const Vector3 &invMassB,
     const Matrix3x3 &invIA, const Matrix3x3 &invIB,
     Core::Motion &motionA, Core::Motion &motionB) {
   Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
@@ -716,7 +774,9 @@ void SequentialImpulsesKernel::solveContactNormal(
 
   Vector3 rACrossN = rA.cross(n);
   Vector3 rBCrossN = rB.cross(n);
-  float invMassSumN = invMassA + invMassB + (invIA * rACrossN).dot(rACrossN) +
+  float effInvMassA = computeDirectionalInverseMass(invMassA, n);
+  float effInvMassB = computeDirectionalInverseMass(invMassB, n);
+  float invMassSumN = effInvMassA + effInvMassB + (invIA * rACrossN).dot(rACrossN) +
                       (invIB * rBCrossN).dot(rBCrossN);
   if (invMassSumN > 1e-6f) {
     float jn = deltaV / invMassSumN;
@@ -725,9 +785,9 @@ void SequentialImpulsesKernel::solveContactNormal(
     jn = contact.normalImpulse - oldImpulse;
 
     Vector3 impulse = n * jn;
-    motionA.linearVelocity += impulse * invMassA;
+    motionA.linearVelocity += applyDirectionalImpulse(impulse, invMassA);
     motionA.angularVelocity += invIA * rA.cross(impulse);
-    motionB.linearVelocity -= impulse * invMassB;
+    motionB.linearVelocity -= applyDirectionalImpulse(impulse, invMassB);
     motionB.angularVelocity -= invIB * rB.cross(impulse);
   }
 }
@@ -737,7 +797,7 @@ void SequentialImpulsesKernel::solveContactFriction(
     const Vector3 &rA, const Vector3 &rB,
     const Vector3 &t1, const Vector3 &t2,
     float friction,
-    float invMassA, float invMassB,
+    const Vector3 &invMassA, const Vector3 &invMassB,
     const Matrix3x3 &invIA, const Matrix3x3 &invIB,
     Core::Motion &motionA, Core::Motion &motionB) {
   float maxFriction = friction * contact.normalImpulse;
@@ -748,7 +808,9 @@ void SequentialImpulsesKernel::solveContactFriction(
   Vector3 relVel = vA - vB;
   Vector3 rACrossT1 = rA.cross(t1);
   Vector3 rBCrossT1 = rB.cross(t1);
-  float invMassSumT1 = invMassA + invMassB +
+  float effInvMassA1 = computeDirectionalInverseMass(invMassA, t1);
+  float effInvMassB1 = computeDirectionalInverseMass(invMassB, t1);
+  float invMassSumT1 = effInvMassA1 + effInvMassB1 +
                        (invIA * rACrossT1).dot(rACrossT1) +
                        (invIB * rBCrossT1).dot(rBCrossT1);
   if (invMassSumT1 > 1e-6f) {
@@ -759,9 +821,9 @@ void SequentialImpulsesKernel::solveContactFriction(
     jt1 = contact.tangentImpulse1 - oldT1;
 
     Vector3 impulseT1 = t1 * jt1;
-    motionA.linearVelocity += impulseT1 * invMassA;
+    motionA.linearVelocity += applyDirectionalImpulse(impulseT1, invMassA);
     motionA.angularVelocity += invIA * rA.cross(impulseT1);
-    motionB.linearVelocity -= impulseT1 * invMassB;
+    motionB.linearVelocity -= applyDirectionalImpulse(impulseT1, invMassB);
     motionB.angularVelocity -= invIB * rB.cross(impulseT1);
   }
 
@@ -771,7 +833,9 @@ void SequentialImpulsesKernel::solveContactFriction(
   relVel = vA - vB;
   Vector3 rACrossT2 = rA.cross(t2);
   Vector3 rBCrossT2 = rB.cross(t2);
-  float invMassSumT2 = invMassA + invMassB +
+  float effInvMassA2 = computeDirectionalInverseMass(invMassA, t2);
+  float effInvMassB2 = computeDirectionalInverseMass(invMassB, t2);
+  float invMassSumT2 = effInvMassA2 + effInvMassB2 +
                        (invIA * rACrossT2).dot(rACrossT2) +
                        (invIB * rBCrossT2).dot(rBCrossT2);
   if (invMassSumT2 > 1e-6f) {
@@ -782,9 +846,9 @@ void SequentialImpulsesKernel::solveContactFriction(
     jt2 = contact.tangentImpulse2 - oldT2;
 
     Vector3 impulseT2 = t2 * jt2;
-    motionA.linearVelocity += impulseT2 * invMassA;
+    motionA.linearVelocity += applyDirectionalImpulse(impulseT2, invMassA);
     motionA.angularVelocity += invIA * rA.cross(impulseT2);
-    motionB.linearVelocity -= impulseT2 * invMassB;
+    motionB.linearVelocity -= applyDirectionalImpulse(impulseT2, invMassB);
     motionB.angularVelocity -= invIB * rB.cross(impulseT2);
   }
 }
@@ -830,15 +894,25 @@ void SequentialImpulsesKernel::resolveCollision(
 
   Core::BodyType typeA = Core::BodyType::Dynamic;
   Core::BodyType typeB = Core::BodyType::Dynamic;
-  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA))
-    typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
-  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB))
-    typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
+  uint8_t lockedAxesA = 0;
+  uint8_t lockedAxesB = 0;
+  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) {
+    const auto &stA = mRegistry.getComponent<Core::BodyState>(manifold.entityA);
+    typeA = stA.type;
+    lockedAxesA = stA.lockedAxes;
+  }
+  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) {
+    const auto &stB = mRegistry.getComponent<Core::BodyState>(manifold.entityB);
+    typeB = stB.type;
+    lockedAxesB = stB.lockedAxes;
+  }
 
   const float invMassA =
       (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
   const float invMassB =
       (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
+  const Vector3 invMassVecA = computeInverseMassVector(invMassA, lockedAxesA);
+  const Vector3 invMassVecB = computeInverseMassVector(invMassB, lockedAxesB);
   const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic)
                               ? massA.inverseInertiaTensor
                               : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -864,8 +938,8 @@ void SequentialImpulsesKernel::resolveCollision(
     Vector3 rA = poseA.orientation * contact.localPointA;
     Vector3 rB = poseB.orientation * contact.localPointB;
 
-    solveContactNormal(contact, rA, rB, n, invMassA, invMassB, invIA, invIB, motionA, motionB);
-    solveContactFriction(contact, rA, rB, t1, t2, friction, invMassA, invMassB, invIA, invIB, motionA, motionB);
+    solveContactNormal(contact, rA, rB, n, invMassVecA, invMassVecB, invIA, invIB, motionA, motionB);
+    solveContactFriction(contact, rA, rB, t1, t2, friction, invMassVecA, invMassVecB, invIA, invIB, motionA, motionB);
     totalNormalImpulse += contact.normalImpulse;
   }
 
@@ -895,15 +969,25 @@ void SequentialImpulsesKernel::solvePositionConstraints(
 
   Core::BodyType typeA = Core::BodyType::Dynamic;
   Core::BodyType typeB = Core::BodyType::Dynamic;
-  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA))
-    typeA = mRegistry.getComponent<Core::BodyState>(manifold.entityA).type;
-  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB))
-    typeB = mRegistry.getComponent<Core::BodyState>(manifold.entityB).type;
+  uint8_t lockedAxesA = 0;
+  uint8_t lockedAxesB = 0;
+  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityA)) {
+    const auto &stA = mRegistry.getComponent<Core::BodyState>(manifold.entityA);
+    typeA = stA.type;
+    lockedAxesA = stA.lockedAxes;
+  }
+  if (mRegistry.hasComponent<Core::BodyState>(manifold.entityB)) {
+    const auto &stB = mRegistry.getComponent<Core::BodyState>(manifold.entityB);
+    typeB = stB.type;
+    lockedAxesB = stB.lockedAxes;
+  }
 
   const float invMassA =
       (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
   const float invMassB =
       (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
+  const Vector3 invMassVecA = computeInverseMassVector(invMassA, lockedAxesA);
+  const Vector3 invMassVecB = computeInverseMassVector(invMassB, lockedAxesB);
   const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic)
                               ? massA.inverseInertiaTensor
                               : Matrix3x3(0, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -932,7 +1016,9 @@ void SequentialImpulsesKernel::solvePositionConstraints(
 
     Vector3 rACrossN = rA.cross(n);
     Vector3 rBCrossN = rB.cross(n);
-    float invMassSum = invMassA + invMassB + (invIA * rACrossN).dot(rACrossN) +
+    float effInvMassA = computeDirectionalInverseMass(invMassVecA, n);
+    float effInvMassB = computeDirectionalInverseMass(invMassVecB, n);
+    float invMassSum = effInvMassA + effInvMassB + (invIA * rACrossN).dot(rACrossN) +
                        (invIB * rBCrossN).dot(rBCrossN);
     if (invMassSum <= 1e-6f)
       continue;
@@ -953,9 +1039,9 @@ void SequentialImpulsesKernel::solvePositionConstraints(
     deltaSplit = contact.splitImpulse - oldSplit;
 
     Vector3 impulse = n * deltaSplit;
-    motionA.splitLinearVelocity += impulse * invMassA;
+    motionA.splitLinearVelocity += applyDirectionalImpulse(impulse, invMassVecA);
     motionA.splitAngularVelocity += invIA * rA.cross(impulse);
-    motionB.splitLinearVelocity -= impulse * invMassB;
+    motionB.splitLinearVelocity -= applyDirectionalImpulse(impulse, invMassVecB);
     motionB.splitAngularVelocity -= invIB * rB.cross(impulse);
   }
 }

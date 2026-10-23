@@ -30,6 +30,7 @@ enum class SceneType {
     SpringSuspension,
     ConeTwistRagdoll,
     JointBreakage,
+    DOFLock,
     Sandbox,
     Count
 };
@@ -54,6 +55,7 @@ private:
     static void setupSpringSuspension(Simulator& sim);
     static void setupConeTwistRagdoll(Simulator& sim);
     static void setupJointBreakage(Simulator& sim);
+    static void setupDOFLock(Simulator& sim);
     static void setupSandbox(Simulator& sim);
     static void setupTriggerSensors(Simulator& sim);
     static void setupCollisionFiltering(Simulator& sim);

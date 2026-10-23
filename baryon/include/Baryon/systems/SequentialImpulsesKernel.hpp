@@ -133,7 +133,7 @@ private:
     void solveContactNormal(
         collision::ContactPoint& contact,
         const Vector3& rA, const Vector3& rB, const Vector3& n,
-        float invMassA, float invMassB,
+        const Vector3& invMassA, const Vector3& invMassB,
         const Matrix3x3& invIA, const Matrix3x3& invIB,
         Core::Motion& motionA, Core::Motion& motionB);
 
@@ -142,7 +142,7 @@ private:
         const Vector3& rA, const Vector3& rB,
         const Vector3& t1, const Vector3& t2,
         float friction,
-        float invMassA, float invMassB,
+        const Vector3& invMassA, const Vector3& invMassB,
         const Matrix3x3& invIA, const Matrix3x3& invIB,
         Core::Motion& motionA, Core::Motion& motionB);
 

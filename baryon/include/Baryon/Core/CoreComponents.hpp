@@ -85,11 +85,47 @@ struct Material {
 };
 
 /**
+ * @enum LockAxis
+ * @brief Cismin kilitli çizgisel ve açısal serbestlik dereceleri (DOF Lock).
+ * @details Bitmask olarak kombine edilebilir. Kilitlenen eksenler boyunca cisim
+ *          fiziksel olarak hareket edemez veya dönemez (sonsuz eylemsizlik).
+ */
+enum LockAxis : uint8_t {
+    None         = 0,
+    LinearX      = 1 << 0, ///< X ekseni boyunca çizgisel öteleme kilitli.
+    LinearY      = 1 << 1, ///< Y ekseni boyunca çizgisel öteleme kilitli.
+    LinearZ      = 1 << 2, ///< Z ekseni boyunca çizgisel öteleme kilitli.
+    AngularX     = 1 << 3, ///< X ekseni etrafında dönme (Pitch) kilitli.
+    AngularY     = 1 << 4, ///< Y ekseni etrafında dönme (Yaw) kilitli.
+    AngularZ     = 1 << 5, ///< Z ekseni etrafında dönme (Roll) kilitli.
+
+    // Kullanışlı kombinasyonlar
+    LinearAll    = LinearX | LinearY | LinearZ,   ///< Tüm çizgisel hareketler kilitli.
+    AngularAll   = AngularX | AngularY | AngularZ,///< Tüm dönmeler kilitli (tam diklik).
+    All          = LinearAll | AngularAll,        ///< 6 DOF tamamen kilitli.
+    Lock2D       = LinearZ | AngularX | AngularY  ///< 2D düzlem (XY) kısıtı: Z hareketi ve X/Y devrilmesi kilitli.
+};
+
+constexpr inline LockAxis operator|(LockAxis a, LockAxis b) noexcept {
+    return static_cast<LockAxis>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b));
+}
+constexpr inline LockAxis operator&(LockAxis a, LockAxis b) noexcept {
+    return static_cast<LockAxis>(static_cast<uint8_t>(a) & static_cast<uint8_t>(b));
+}
+constexpr inline LockAxis operator^(LockAxis a, LockAxis b) noexcept {
+    return static_cast<LockAxis>(static_cast<uint8_t>(a) ^ static_cast<uint8_t>(b));
+}
+constexpr inline LockAxis operator~(LockAxis a) noexcept {
+    return static_cast<LockAxis>(~static_cast<uint8_t>(a));
+}
+
+/**
  * @struct BodyState
  * @brief Cismin genel simülasyon durumunu ve özelliklerini tutan bileşen.
  */
 struct BodyState {
     BodyType type{BodyType::Dynamic};   ///< Cismin hareket davranış tipi (Static, Kinematic, Dynamic).
+    uint8_t lockedAxes{0};              ///< Kilitli serbestlik dereceleri (LockAxis bitmask).
     bool isSleeping{false};             ///< Cisim hareketsiz kalıp işlem tasarrufu için uyku moduna geçti mi?
     float sleepTimer{0.0f};             ///< Cismin uyku moduna geçmesi için geçen hareketsiz süre sayacı.
     bool useCCD{true};                  ///< Sürekli Çarpışma Algılama (CCD - hızlı cisimlerin tünellemesini önler) aktif mi?

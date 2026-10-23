@@ -372,5 +372,52 @@ public:
       return std::unexpected(PhysicsError::EntityDead);
     return mRegistry->getComponent<ecs::ColliderData>(mEntity).mask;
   }
+
+  /**
+   * @brief Cismin kilitli serbestlik derecelerini (DOF Lock) ayarlar.
+   * @param axes Kilitlenecek eksenler bitmask'i (LockAxis kombinasyonu).
+   * @return Başarılıysa güncel Body referansı, değilse hata kodu.
+   */
+  std::expected<Body, PhysicsError> setLockedAxes(uint8_t axes) {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    auto &state = mRegistry->getComponent<Core::BodyState>(mEntity);
+    state.lockedAxes = axes;
+
+    // Kilitlenen eksenlerdeki hızları sıfırla
+    if (mRegistry->hasComponent<Core::Motion>(mEntity)) {
+      auto &motion = mRegistry->getComponent<Core::Motion>(mEntity);
+      if (axes & Core::LockAxis::LinearX) { motion.linearVelocity.x = 0.0f; motion.splitLinearVelocity.x = 0.0f; }
+      if (axes & Core::LockAxis::LinearY) { motion.linearVelocity.y = 0.0f; motion.splitLinearVelocity.y = 0.0f; }
+      if (axes & Core::LockAxis::LinearZ) { motion.linearVelocity.z = 0.0f; motion.splitLinearVelocity.z = 0.0f; }
+      if (axes & Core::LockAxis::AngularX) { motion.angularVelocity.x = 0.0f; motion.splitAngularVelocity.x = 0.0f; }
+      if (axes & Core::LockAxis::AngularY) { motion.angularVelocity.y = 0.0f; motion.splitAngularVelocity.y = 0.0f; }
+      if (axes & Core::LockAxis::AngularZ) { motion.angularVelocity.z = 0.0f; motion.splitAngularVelocity.z = 0.0f; }
+    }
+    state.isSleeping = false;
+    state.sleepTimer = 0.0f;
+    return *this;
+  }
+
+  /**
+   * @brief Cismin kilitli eksen bitmask'ini döndürür.
+   * @return Kilitli eksenler veya hata kodu.
+   */
+  [[nodiscard]] std::expected<uint8_t, PhysicsError> getLockedAxes() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::BodyState>(mEntity).lockedAxes;
+  }
+
+  /**
+   * @brief Belirli bir eksenin kilitli olup olmadığını sorgular.
+   * @param axis Sorgulanacak eksen.
+   * @return Eksen kilitliyse true, serbestse veya cisim geçersizse false.
+   */
+  [[nodiscard]] bool isAxisLocked(Core::LockAxis axis) const {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return false;
+    return (mRegistry->getComponent<Core::BodyState>(mEntity).lockedAxes & static_cast<uint8_t>(axis)) != 0;
+  }
 };
 } // namespace Baryon

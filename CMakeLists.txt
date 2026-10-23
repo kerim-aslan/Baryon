@@ -279,6 +279,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/JointBreakageTest.cpp")
     add_test(NAME JointBreakageTest COMMAND JointBreakageTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/DOFLockTest.cpp")
+    add_executable(DOFLockTest tests/DOFLockTest.cpp)
+    target_link_libraries(DOFLockTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME DOFLockTest COMMAND DOFLockTest)
+endif()
+
+
 
 
 # Headless Physics Harness Library & Executable (Faz 0.1)

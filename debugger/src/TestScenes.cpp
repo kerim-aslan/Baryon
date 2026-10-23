@@ -28,7 +28,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::SpringSuspension: return "15. Yayli Suspansiyon & Sonumlu Salinim (Spring Joint)";
         case SceneType::ConeTwistRagdoll: return "16. Koni-Burulma Ragdoll Eklemi (Cone-Twist Ragdoll Joint)";
         case SceneType::JointBreakage: return "17. Eklem Kirilmasi & Kopan Asma Kopru (Joint Breakage / Collapsing Bridge)";
-        case SceneType::Sandbox: return "18. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::DOFLock: return "18. Eksen Kilitleme & 2B Fizik (DOF Lock / LockAxis)";
+        case SceneType::Sandbox: return "19. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -71,6 +72,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "Anatomik omuz ve ragdoll mafsalini test eder. 3B uzayda koni salinim limiti (swing cone) ve eksenel burulma limiti (axial twist) ile sabit omuza bagli serbest sallanan ve burulan insan kolu modelidir.";
         case SceneType::JointBreakage:
             return "Asiri yuk veya reaksiyon kuvveti altinda eklemlerin kirilmasini (Joint Breakage) gosterir. Ortadaki parcalara dusen agir yuk karsisinda sabit ve donel eklemler esik kuvvetini (breakForce) asarak kopar ve kopru ikiye ayrilarak parcalanir.";
+        case SceneType::DOFLock:
+            return "Cisimlerin serbestlik derecelerini (DoF) kilitler. 1) Z ekseni ve pitch/roll rotasyonu kilitli 2B fizik modu (Lock2D), 2) Eğimde dahi dikligini koruyan devrilmeyen karakter (AngularX|Z lock), 3) Sadece dikey kayan 1-DoF asansor platformu yer alir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -107,6 +110,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::SpringSuspension: setupSpringSuspension(sim); break;
         case SceneType::ConeTwistRagdoll: setupConeTwistRagdoll(sim); break;
         case SceneType::JointBreakage: setupJointBreakage(sim); break;
+        case SceneType::DOFLock: setupDOFLock(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -910,6 +914,64 @@ void TestScenes::setupJointBreakage(Simulator& sim) {
     Body boulder = sim.createBody(boulderPose, collision::CollisionShape{collision::SphereShape(0.45f)});
     boulder.setBodyType(Core::BodyType::Dynamic);
     (void)boulder.setMass(25.0f);
+}
+
+void TestScenes::setupDOFLock(Simulator& sim) {
+    // 0. Zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(25.0f, 0.5f, 15.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. SOL ALAN: 2B Fizik Modu (LockAxis::Lock2D = LinearZ | AngularX | AngularY)
+    // Z ekseninde sabit, sadece XY düzleminde hareket eden kutular kulesi
+    for (int i = 0; i < 4; ++i) {
+        float y = 0.5f + static_cast<float>(i) * 1.05f;
+        Pose boxPose(Vector3(-6.0f + (i % 2 == 1 ? 0.15f : -0.15f), y, 0.0f));
+        Body box = sim.createBody(boxPose, collision::CollisionShape{collision::BoxShape(Vector3(0.5f, 0.5f, 0.5f))});
+        box.setBodyType(Core::BodyType::Dynamic);
+        (void)box.setMass(1.5f);
+        box.setLockedAxes(Core::LockAxis::Lock2D);
+    }
+    // 2B kuleye çarpan mermi küre (yine 2B kilitli)
+    Pose strikerPose(Vector3(-10.0f, 1.5f, 0.0f));
+    Body striker = sim.createBody(strikerPose, collision::CollisionShape{collision::SphereShape(0.4f)});
+    striker.setBodyType(Core::BodyType::Dynamic);
+    (void)striker.setMass(3.0f);
+    striker.setLockedAxes(Core::LockAxis::Lock2D);
+    (void)striker.setLinearVelocity(Vector3(12.0f, 2.0f, 0.0f));
+
+    // 2. ORTA ALAN: Devrilmeyen Dik Karakter (AngularX | AngularZ kilitli, Y yaw serbest)
+    // 20 derece eğimli rampa
+    Quaternion rampRot(Vector3(0.0f, 0.0f, 1.0f), 0.35f);
+    Pose rampPose(Vector3(0.0f, 1.5f, 0.0f), rampRot);
+    Body ramp = sim.createBody(rampPose, collision::CollisionShape{collision::BoxShape(Vector3(2.5f, 0.2f, 2.0f))});
+    ramp.setBodyType(Core::BodyType::Static);
+
+    // Eğimli rampa üzerine bırakılan dik karakter gövdesi (asla devrilmez, dik kayar)
+    Pose charPose(Vector3(-0.5f, 3.5f, 0.0f));
+    Body uprightChar = sim.createBody(charPose, collision::CollisionShape{collision::BoxShape(Vector3(0.35f, 0.9f, 0.35f))});
+    uprightChar.setBodyType(Core::BodyType::Dynamic);
+    (void)uprightChar.setMass(4.0f);
+    uprightChar.setLockedAxes(Core::LockAxis::AngularX | Core::LockAxis::AngularZ);
+
+    // Karakterin yanına devrilen normal kutu (kıyaslama için kilitsiz)
+    Pose normalPose(Vector3(0.5f, 3.5f, 0.0f));
+    Body normalBox = sim.createBody(normalPose, collision::CollisionShape{collision::BoxShape(Vector3(0.35f, 0.9f, 0.35f))});
+    normalBox.setBodyType(Core::BodyType::Dynamic);
+    (void)normalBox.setMass(4.0f);
+
+    // 3. SAĞ ALAN: 1-DoF Dikey Asansör / Ray Platformu (LinearX | LinearZ | AngularAll)
+    Pose platPose(Vector3(6.5f, 6.0f, 0.0f));
+    Body platform = sim.createBody(platPose, collision::CollisionShape{collision::BoxShape(Vector3(1.2f, 0.15f, 1.2f))});
+    platform.setBodyType(Core::BodyType::Dynamic);
+    (void)platform.setMass(10.0f);
+    platform.setLockedAxes(Core::LockAxis::LinearX | Core::LockAxis::LinearZ | Core::LockAxis::AngularAll);
+
+    // Platformun üzerine düşen ağır küre
+    Pose weightPose(Vector3(6.8f, 9.0f, 0.2f));
+    Body weight = sim.createBody(weightPose, collision::CollisionShape{collision::SphereShape(0.5f)});
+    weight.setBodyType(Core::BodyType::Dynamic);
+    (void)weight.setMass(5.0f);
 }
 
 } // namespace Baryon::Debugger
