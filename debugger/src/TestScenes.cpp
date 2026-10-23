@@ -26,7 +26,8 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::BallSocketPendulum: return "13. Kuresel Mafsal Sarkaci (Ball-Socket Pendulum)";
         case SceneType::PrismaticElevator: return "14. Prizmatik Kayar Eklem & Asansor (Prismatic Slider)";
         case SceneType::SpringSuspension: return "15. Yayli Suspansiyon & Sonumlu Salinim (Spring Joint)";
-        case SceneType::Sandbox: return "16. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::ConeTwistRagdoll: return "16. Koni-Burulma Ragdoll Eklemi (Cone-Twist Ragdoll Joint)";
+        case SceneType::Sandbox: return "17. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -65,6 +66,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "1 serbest dogrusal kayma eksenine (1-DOF) izin verip 2 yanal ve 3 acisal ekseni kilitleyen prizmatik eklemi test eder. Dikey eksende alt/ust sinirli ve motorlu asansor kabini ile yatay rayda hareket eden mekanik kizak yer alir.";
         case SceneType::SpringSuspension:
             return "Hooke Yasasi ve sonumlu harmonik salinici (Damped Harmonic Oscillator) modelini test eder. Sira sira farkli sonumleme oranlarina (sonumsuz zeta=0, kritik sonumlu zeta=1, zayif sonumlu zeta=0.15) sahip yayli kutleler ve 4 tekerlekli araba suspansiyon sasisi yer alir.";
+        case SceneType::ConeTwistRagdoll:
+            return "Anatomik omuz ve ragdoll mafsalini test eder. 3B uzayda koni salinim limiti (swing cone) ve eksenel burulma limiti (axial twist) ile sabit omuza bagli serbest sallanan ve burulan insan kolu modelidir.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -99,6 +102,7 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::BallSocketPendulum: setupBallSocketPendulum(sim); break;
         case SceneType::PrismaticElevator: setupPrismaticElevator(sim); break;
         case SceneType::SpringSuspension: setupSpringSuspension(sim); break;
+        case SceneType::ConeTwistRagdoll: setupConeTwistRagdoll(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -744,6 +748,87 @@ void TestScenes::setupSpringSuspension(Simulator& sim) {
                                    Vector3(0.0f, 1.0f, 0.0f),
                                    Vector3(cornerX[i], 0.0f, cornerZ[i]),
                                    1.5f, 120.0f, 15.0f);
+    }
+}
+
+void TestScenes::setupConeTwistRagdoll(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Zemin
+    Pose groundPose(Vector3(0.0f, 0.0f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(15.0f, 0.2f, 15.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. Sol: Geniş Salınımlı Ragdoll Kolu (Swing = 60 deg, Twist = [-45, +45] deg)
+    {
+        Pose shoulderPose(Vector3(-3.0f, 5.0f, 0.0f));
+        Body shoulder = sim.createBody(shoulderPose, collision::CollisionShape{collision::SphereShape(0.25f)});
+        shoulder.setBodyType(Core::BodyType::Static);
+        (void)shoulder.setCollisionMask(0);
+
+        Pose armPose(Vector3(-3.0f, 4.05f, 0.0f));
+        Body upperArm = sim.createBody(armPose, collision::CollisionShape{collision::CylinderShape(0.1f, 0.5f)});
+        upperArm.setBodyType(Core::BodyType::Dynamic);
+        (void)upperArm.setMass(4.0f);
+        (void)upperArm.setCollisionMask(0);
+
+        sim.createConeTwistConstraint(shoulder, upperArm,
+                                      Vector3(0.0f, -0.3f, 0.0f),
+                                      Vector3(0.0f, 0.65f, 0.0f),
+                                      Vector3(0.0f, -1.0f, 0.0f),
+                                      Vector3(0.0f, -1.0f, 0.0f),
+                                      1.047f, -0.785f, 0.785f);
+
+        auto& motionArm = sim.getRegistry().getComponent<Core::Motion>(upperArm.getEntity());
+        motionArm.linearVelocity = Vector3(2.5f, 0.0f, 1.5f);
+    }
+
+    // 2. Orta: Dar Salınımlı ve Yüksek Burulmalı Kol (Swing = 25 deg, Twist = [-60, +60] deg)
+    {
+        Pose shoulderPose(Vector3(0.0f, 5.0f, 0.0f));
+        Body shoulder = sim.createBody(shoulderPose, collision::CollisionShape{collision::BoxShape(Vector3(0.25f, 0.25f, 0.25f))});
+        shoulder.setBodyType(Core::BodyType::Static);
+        (void)shoulder.setCollisionMask(0);
+
+        Pose armPose(Vector3(0.0f, 4.05f, 0.0f));
+        Body upperArm = sim.createBody(armPose, collision::CollisionShape{collision::CapsuleShape(0.12f, 0.8f)});
+        upperArm.setBodyType(Core::BodyType::Dynamic);
+        (void)upperArm.setMass(3.5f);
+        (void)upperArm.setCollisionMask(0);
+
+        sim.createConeTwistConstraint(shoulder, upperArm,
+                                      Vector3(0.0f, -0.3f, 0.0f),
+                                      Vector3(0.0f, 0.65f, 0.0f),
+                                      Vector3(0.0f, -1.0f, 0.0f),
+                                      Vector3(0.0f, -1.0f, 0.0f),
+                                      0.436f, -1.047f, 1.047f);
+
+        auto& motionArm = sim.getRegistry().getComponent<Core::Motion>(upperArm.getEntity());
+        motionArm.angularVelocity = Vector3(0.0f, 4.0f, 0.0f);
+    }
+
+    // 3. Sağ: Tam Kilitli Ragdoll Eklemi (Swing = 0 deg, Twist = 0 deg)
+    {
+        Pose shoulderPose(Vector3(3.0f, 5.0f, 0.0f));
+        Body shoulder = sim.createBody(shoulderPose, collision::CollisionShape{collision::SphereShape(0.25f)});
+        shoulder.setBodyType(Core::BodyType::Static);
+        (void)shoulder.setCollisionMask(0);
+
+        Pose armPose(Vector3(3.0f, 4.05f, 0.0f));
+        Body upperArm = sim.createBody(armPose, collision::CollisionShape{collision::CylinderShape(0.1f, 0.5f)});
+        upperArm.setBodyType(Core::BodyType::Dynamic);
+        (void)upperArm.setMass(4.0f);
+        (void)upperArm.setCollisionMask(0);
+
+        sim.createConeTwistConstraint(shoulder, upperArm,
+                                      Vector3(0.0f, -0.3f, 0.0f),
+                                      Vector3(0.0f, 0.65f, 0.0f),
+                                      Vector3(0.0f, -1.0f, 0.0f),
+                                      Vector3(0.0f, -1.0f, 0.0f),
+                                      0.0f, 0.0f, 0.0f);
+
+        auto& motionArm = sim.getRegistry().getComponent<Core::Motion>(upperArm.getEntity());
+        motionArm.linearVelocity = Vector3(2.0f, 0.0f, 2.0f);
     }
 }
 

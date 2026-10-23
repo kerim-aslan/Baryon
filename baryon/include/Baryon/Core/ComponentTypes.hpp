@@ -22,6 +22,7 @@
 #include "Baryon/collision/BallSocketConstraint.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/FixedConstraint.hpp"
+#include "Baryon/collision/ConeTwistConstraint.hpp"
 #include "Baryon/collision/PrismaticConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
 #include "Baryon/collision/SpringConstraint.hpp"
@@ -53,7 +54,8 @@ using ComponentTypes = std::tuple<
     collision::FixedConstraint,
     collision::BallSocketConstraint,
     collision::PrismaticConstraint,
-    collision::SpringConstraint
+    collision::SpringConstraint,
+    collision::ConeTwistConstraint
 >;
 
 /**
@@ -65,7 +67,8 @@ using ConstraintTypes = std::tuple<
     collision::FixedConstraint,
     collision::BallSocketConstraint,
     collision::PrismaticConstraint,
-    collision::SpringConstraint
+    collision::SpringConstraint,
+    collision::ConeTwistConstraint
 >;
 
 template <typename Tuple>

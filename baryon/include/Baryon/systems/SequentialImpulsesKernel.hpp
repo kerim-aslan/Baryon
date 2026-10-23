@@ -21,6 +21,7 @@
 #include "Baryon/Core/Registry.hpp"
 #include "Baryon/collision/BallSocketConstraint.hpp"
 #include "Baryon/collision/ContactManifold.hpp"
+#include "Baryon/collision/ConeTwistConstraint.hpp"
 #include "Baryon/collision/DistanceConstraint.hpp"
 #include "Baryon/collision/FixedConstraint.hpp"
 #include "Baryon/collision/PrismaticConstraint.hpp"
@@ -96,8 +97,15 @@ private:
     void solveConstraintVelocity(collision::SpringConstraint& constraint, float deltaTime);
     void solveConstraintPosition(collision::SpringConstraint& constraint, float deltaTime);
 
+    void prepareConstraint(collision::ConeTwistConstraint& constraint, float deltaTime);
+    void warmStartConstraint(collision::ConeTwistConstraint& constraint);
+    void solveConstraintVelocity(collision::ConeTwistConstraint& constraint, float deltaTime);
+    void solveConstraintPosition(collision::ConeTwistConstraint& constraint, float deltaTime);
+
     void resolveSpringConstraint(collision::SpringConstraint& constraint, float deltaTime);
     void solveSpringConstraintPosition(collision::SpringConstraint& constraint, float deltaTime);
+    void resolveConeTwistConstraint(collision::ConeTwistConstraint& constraint, float deltaTime);
+    void solveConeTwistConstraintPosition(collision::ConeTwistConstraint& constraint, float deltaTime);
 
     void collectIslandConstraints(
         const std::vector<ecs::Entity>& island,

@@ -257,6 +257,29 @@ void SequentialImpulsesKernel::solveConstraintPosition(
   solveSpringConstraintPosition(constraint, deltaTime);
 }
 
+void SequentialImpulsesKernel::prepareConstraint(
+    collision::ConeTwistConstraint &constraint, float deltaTime) {
+  (void)deltaTime;
+  constraint.accumulatedImpulseLinear = Vector3(0.0f, 0.0f, 0.0f);
+  constraint.accumulatedSwingImpulse = 0.0f;
+  constraint.accumulatedTwistImpulse = 0.0f;
+}
+
+void SequentialImpulsesKernel::warmStartConstraint(
+    collision::ConeTwistConstraint &constraint) {
+  (void)constraint;
+}
+
+void SequentialImpulsesKernel::solveConstraintVelocity(
+    collision::ConeTwistConstraint &constraint, float deltaTime) {
+  resolveConeTwistConstraint(constraint, deltaTime);
+}
+
+void SequentialImpulsesKernel::solveConstraintPosition(
+    collision::ConeTwistConstraint &constraint, float deltaTime) {
+  solveConeTwistConstraintPosition(constraint, deltaTime);
+}
+
 void SequentialImpulsesKernel::collectIslandConstraints(
     const std::vector<ecs::Entity> &island,
     std::vector<ConstraintRef> &localConstraints) {
@@ -1878,6 +1901,309 @@ void SequentialImpulsesKernel::solveSpringConstraintPosition(
     collision::SpringConstraint &constraint, float deltaTime) {
   (void)constraint;
   (void)deltaTime;
+}
+
+void SequentialImpulsesKernel::resolveConeTwistConstraint(
+    collision::ConeTwistConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+
+  // 1. Noktasal Bağlantı (3 Boyutta Ayrılmayı Kilitle - 3 DOF Coupled Block Solver)
+  Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
+  Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
+  Vector3 relVel = vA - vB;
+
+  float wSum = massA.inverseMass + massB.inverseMass;
+  Matrix3x3 K;
+  for (std::size_t col = 0; col < 3; ++col) {
+    Vector3 e(col == 0 ? 1.0f : 0.0f, col == 1 ? 1.0f : 0.0f, col == 2 ? 1.0f : 0.0f);
+    Vector3 colA = (massA.inverseMass > 0.0f) ? -rA.cross(massA.inverseInertiaTensor * rA.cross(e)) : Vector3(0, 0, 0);
+    Vector3 colB = (massB.inverseMass > 0.0f) ? -rB.cross(massB.inverseInertiaTensor * rB.cross(e)) : Vector3(0, 0, 0);
+    Vector3 kCol = e * wSum + colA + colB;
+    K.rows[0][col] = kCol.x;
+    K.rows[1][col] = kCol.y;
+    K.rows[2][col] = kCol.z;
+  }
+
+  float det = K.getDeterminant();
+  if (std::abs(det) > 1e-7f) {
+    Matrix3x3 invK = K.getInverse();
+    Vector3 posError = (poseA.position + rA) - (poseB.position + rB);
+    const float baumgarteLinear = 0.35f;
+    Vector3 linearBias = posError * (baumgarteLinear / deltaTime);
+    Vector3 impulse = invK * (-(relVel + linearBias));
+
+    motionA.linearVelocity += impulse * massA.inverseMass;
+    motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+    motionB.linearVelocity -= impulse * massB.inverseMass;
+    motionB.angularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
+  }
+
+  Vector3 uA = (poseA.orientation * constraint.twistAxisLocalA).getNormalized();
+  Vector3 uB = (poseB.orientation * constraint.twistAxisLocalB).getNormalized();
+
+  // 2. Koni Salınım Sınırı (Swing / Cone Limit)
+  if (constraint.enableSwingLimit) {
+    float cosSwing = std::clamp(uA.dot(uB), -1.0f, 1.0f);
+    float swingAngle = std::acos(cosSwing);
+    if (swingAngle > constraint.swingLimitAngle) {
+      Vector3 swingAxis = uA.cross(uB);
+      if (swingAxis.length() > 1e-5f) {
+        swingAxis = swingAxis.getNormalized();
+        float curSwingVel = (motionB.angularVelocity - motionA.angularVelocity).dot(swingAxis);
+        float violation = swingAngle - constraint.swingLimitAngle;
+        float bias = violation * (0.2f / deltaTime);
+        float deltaW = -(curSwingVel + bias);
+        if (deltaW < 0.0f) {
+          float invAngMass = (massA.inverseInertiaTensor * swingAxis).dot(swingAxis) +
+                             (massB.inverseInertiaTensor * swingAxis).dot(swingAxis);
+          if (invAngMass > 1e-6f) {
+            float j = deltaW / invAngMass;
+            float oldImpulse = constraint.accumulatedSwingImpulse;
+            constraint.accumulatedSwingImpulse = std::min(0.0f, oldImpulse + j);
+            float dImpulse = constraint.accumulatedSwingImpulse - oldImpulse;
+
+            Vector3 angImpulse = swingAxis * dImpulse;
+            motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
+            motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
+          }
+        }
+      }
+    } else {
+      constraint.accumulatedSwingImpulse = 0.0f;
+    }
+  }
+
+  // 3. Eksenel Burulma Sınırı (Twist Limit)
+  if (constraint.enableTwistLimit) {
+    Vector3 uAvg = (uA + uB);
+    if (uAvg.length() > 1e-5f) {
+      uAvg = uAvg.getNormalized();
+
+      Vector3 a_A = constraint.twistAxisLocalA.getNormalized();
+      Vector3 p_A1;
+      if (std::abs(a_A.x) >= 0.57735f)
+        p_A1 = Vector3(a_A.y, -a_A.x, 0.0f).getNormalized();
+      else
+        p_A1 = Vector3(0.0f, a_A.z, -a_A.y).getNormalized();
+
+      Vector3 p_B1 = constraint.initialRelativeOrientation.getInverse() * p_A1;
+      Vector3 p_worldA = poseA.orientation * p_A1;
+      Vector3 p_worldB = poseB.orientation * p_B1;
+
+      Vector3 pA_proj = (p_worldA - uAvg * p_worldA.dot(uAvg));
+      Vector3 pB_proj = (p_worldB - uAvg * p_worldB.dot(uAvg));
+      if (pA_proj.length() > 1e-5f && pB_proj.length() > 1e-5f) {
+        pA_proj = pA_proj.getNormalized();
+        pB_proj = pB_proj.getNormalized();
+
+        float sinTwist = (pA_proj.cross(pB_proj)).dot(uAvg);
+        float cosTwist = std::clamp(pA_proj.dot(pB_proj), -1.0f, 1.0f);
+        float twistAngle = std::atan2(sinTwist, cosTwist);
+
+        float curTwistVel = (motionB.angularVelocity - motionA.angularVelocity).dot(uAvg);
+        float invAngMassTwist = (massA.inverseInertiaTensor * uAvg).dot(uAvg) +
+                                (massB.inverseInertiaTensor * uAvg).dot(uAvg);
+        if (invAngMassTwist > 1e-6f) {
+          if (twistAngle <= constraint.lowerTwistLimit) {
+            float violation = twistAngle - constraint.lowerTwistLimit;
+            float bias = violation * (0.2f / deltaTime);
+            float deltaW = -(curTwistVel + bias);
+            float j = deltaW / invAngMassTwist;
+            float oldImpulse = constraint.accumulatedTwistImpulse;
+            constraint.accumulatedTwistImpulse = std::max(0.0f, oldImpulse + j);
+            float dImpulse = constraint.accumulatedTwistImpulse - oldImpulse;
+
+            Vector3 angImpulse = uAvg * dImpulse;
+            motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
+            motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
+          } else if (twistAngle >= constraint.upperTwistLimit) {
+            float violation = twistAngle - constraint.upperTwistLimit;
+            float bias = violation * (0.2f / deltaTime);
+            float deltaW = -(curTwistVel + bias);
+            float j = deltaW / invAngMassTwist;
+            float oldImpulse = constraint.accumulatedTwistImpulse;
+            constraint.accumulatedTwistImpulse = std::min(0.0f, oldImpulse + j);
+            float dImpulse = constraint.accumulatedTwistImpulse - oldImpulse;
+
+            Vector3 angImpulse = uAvg * dImpulse;
+            motionB.angularVelocity += massB.inverseInertiaTensor * angImpulse;
+            motionA.angularVelocity -= massA.inverseInertiaTensor * angImpulse;
+          } else {
+            constraint.accumulatedTwistImpulse = 0.0f;
+          }
+        }
+      }
+    }
+  }
+}
+
+void SequentialImpulsesKernel::solveConeTwistConstraintPosition(
+    collision::ConeTwistConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+
+  // 1. Doğrusal Konum Düzeltmesi (Split Impulse - 3 DOF Coupled Block Solver)
+  Vector3 effA = pA + (motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA)) * deltaTime;
+  Vector3 effB = pB + (motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB)) * deltaTime;
+  Vector3 linearError = effA - effB;
+
+  const float splitFactorLinear = 0.8f;
+  Vector3 linearBias = linearError * (splitFactorLinear / deltaTime);
+
+  Vector3 vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+  Vector3 vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+  Vector3 relSplitVel = vSplitA - vSplitB;
+
+  float wSum = massA.inverseMass + massB.inverseMass;
+  Matrix3x3 K;
+  for (std::size_t col = 0; col < 3; ++col) {
+    Vector3 e(col == 0 ? 1.0f : 0.0f, col == 1 ? 1.0f : 0.0f, col == 2 ? 1.0f : 0.0f);
+    Vector3 colA = (massA.inverseMass > 0.0f) ? -rA.cross(massA.inverseInertiaTensor * rA.cross(e)) : Vector3(0, 0, 0);
+    Vector3 colB = (massB.inverseMass > 0.0f) ? -rB.cross(massB.inverseInertiaTensor * rB.cross(e)) : Vector3(0, 0, 0);
+    Vector3 kCol = e * wSum + colA + colB;
+    K.rows[0][col] = kCol.x;
+    K.rows[1][col] = kCol.y;
+    K.rows[2][col] = kCol.z;
+  }
+
+  float det = K.getDeterminant();
+  if (std::abs(det) > 1e-7f) {
+    Matrix3x3 invK = K.getInverse();
+    Vector3 impulse = invK * (-(relSplitVel + linearBias));
+
+    motionA.splitLinearVelocity += impulse * massA.inverseMass;
+    motionA.splitAngularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
+    motionB.splitLinearVelocity -= impulse * massB.inverseMass;
+    motionB.splitAngularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
+  }
+
+
+  Vector3 uA = (poseA.orientation * constraint.twistAxisLocalA).getNormalized();
+  Vector3 uB = (poseB.orientation * constraint.twistAxisLocalB).getNormalized();
+  Vector3 relSplitAngVel = motionB.splitAngularVelocity - motionA.splitAngularVelocity;
+
+  // 2. Koni Salınım Sınırı (Swing Split Impulse)
+  if (constraint.enableSwingLimit) {
+    float cosSwing = std::clamp(uA.dot(uB), -1.0f, 1.0f);
+    float swingAngle = std::acos(cosSwing);
+    if (swingAngle > constraint.swingLimitAngle) {
+      Vector3 swingAxis = uA.cross(uB);
+      if (swingAxis.length() > 1e-5f) {
+        swingAxis = swingAxis.getNormalized();
+        float violation = swingAngle - constraint.swingLimitAngle;
+        float bias = violation * (0.8f / deltaTime);
+        float deltaW = -(relSplitAngVel.dot(swingAxis) + bias);
+        float invAngMass = (massA.inverseInertiaTensor * swingAxis).dot(swingAxis) +
+                           (massB.inverseInertiaTensor * swingAxis).dot(swingAxis);
+        if (invAngMass > 1e-6f) {
+          float j = deltaW / invAngMass;
+          if (j < 0.0f) {
+            Vector3 angImpulse = swingAxis * j;
+            motionB.splitAngularVelocity += massB.inverseInertiaTensor * angImpulse;
+            motionA.splitAngularVelocity -= massA.inverseInertiaTensor * angImpulse;
+            relSplitAngVel = motionB.splitAngularVelocity - motionA.splitAngularVelocity;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Eksenel Burulma Sınırı (Twist Split Impulse)
+  if (constraint.enableTwistLimit) {
+    Vector3 uAvg = (uA + uB);
+    if (uAvg.length() > 1e-5f) {
+      uAvg = uAvg.getNormalized();
+
+      Vector3 a_A = constraint.twistAxisLocalA.getNormalized();
+      Vector3 p_A1;
+      if (std::abs(a_A.x) >= 0.57735f)
+        p_A1 = Vector3(a_A.y, -a_A.x, 0.0f).getNormalized();
+      else
+        p_A1 = Vector3(0.0f, a_A.z, -a_A.y).getNormalized();
+
+      Vector3 p_B1 = constraint.initialRelativeOrientation.getInverse() * p_A1;
+      Vector3 p_worldA = poseA.orientation * p_A1;
+      Vector3 p_worldB = poseB.orientation * p_B1;
+
+      Vector3 pA_proj = (p_worldA - uAvg * p_worldA.dot(uAvg));
+      Vector3 pB_proj = (p_worldB - uAvg * p_worldB.dot(uAvg));
+      if (pA_proj.length() > 1e-5f && pB_proj.length() > 1e-5f) {
+        pA_proj = pA_proj.getNormalized();
+        pB_proj = pB_proj.getNormalized();
+
+        float sinTwist = (pA_proj.cross(pB_proj)).dot(uAvg);
+        float cosTwist = std::clamp(pA_proj.dot(pB_proj), -1.0f, 1.0f);
+        float twistAngle = std::atan2(sinTwist, cosTwist);
+
+        float invAngMassTwist = (massA.inverseInertiaTensor * uAvg).dot(uAvg) +
+                                (massB.inverseInertiaTensor * uAvg).dot(uAvg);
+        if (invAngMassTwist > 1e-6f) {
+          if (twistAngle < constraint.lowerTwistLimit) {
+            float violation = twistAngle - constraint.lowerTwistLimit;
+            float bias = violation * (0.8f / deltaTime);
+            float deltaW = -(relSplitAngVel.dot(uAvg) + bias);
+            float j = deltaW / invAngMassTwist;
+            if (j > 0.0f) {
+              Vector3 angImpulse = uAvg * j;
+              motionB.splitAngularVelocity += massB.inverseInertiaTensor * angImpulse;
+              motionA.splitAngularVelocity -= massA.inverseInertiaTensor * angImpulse;
+            }
+          } else if (twistAngle > constraint.upperTwistLimit) {
+            float violation = twistAngle - constraint.upperTwistLimit;
+            float bias = violation * (0.8f / deltaTime);
+            float deltaW = -(relSplitAngVel.dot(uAvg) + bias);
+            float j = deltaW / invAngMassTwist;
+            if (j < 0.0f) {
+              Vector3 angImpulse = uAvg * j;
+              motionB.splitAngularVelocity += massB.inverseInertiaTensor * angImpulse;
+              motionA.splitAngularVelocity -= massA.inverseInertiaTensor * angImpulse;
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 } // namespace Baryon::systems

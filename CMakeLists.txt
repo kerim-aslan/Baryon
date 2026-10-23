@@ -267,6 +267,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/RevoluteConstraintTest.cpp")
     add_test(NAME RevoluteConstraintTest COMMAND RevoluteConstraintTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/ConeTwistConstraintTest.cpp")
+    add_executable(ConeTwistConstraintTest tests/ConeTwistConstraintTest.cpp)
+    target_link_libraries(ConeTwistConstraintTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME ConeTwistConstraintTest COMMAND ConeTwistConstraintTest)
+endif()
+
 
 
 # Headless Physics Harness Library & Executable (Faz 0.1)

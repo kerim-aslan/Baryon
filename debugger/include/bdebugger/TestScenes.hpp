@@ -28,6 +28,7 @@ enum class SceneType {
     BallSocketPendulum,
     PrismaticElevator,
     SpringSuspension,
+    ConeTwistRagdoll,
     Sandbox,
     Count
 };
@@ -50,6 +51,7 @@ private:
     static void setupBallSocketPendulum(Simulator& sim);
     static void setupPrismaticElevator(Simulator& sim);
     static void setupSpringSuspension(Simulator& sim);
+    static void setupConeTwistRagdoll(Simulator& sim);
     static void setupSandbox(Simulator& sim);
     static void setupTriggerSensors(Simulator& sim);
     static void setupCollisionFiltering(Simulator& sim);

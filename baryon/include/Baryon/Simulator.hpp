@@ -524,6 +524,50 @@ public:
         }
     }
 
+    /**
+     * @brief İki cisim arasına koni-burulma (Cone-Twist / Ragdoll) eklemi bağlar.
+     * @param a Birinci cisim (örneğin omuz/gövde).
+     * @param b İkinci cisim (örneğin kol).
+     * @param anchorA A cismi yerel ankor noktası.
+     * @param anchorB B cismi yerel ankor noktası.
+     * @param twistA A cismi yerel burulma ekseni.
+     * @param twistB B cismi yerel burulma ekseni.
+     * @param swingLimit Maksimum koni salınım yarı-açısı (radyan).
+     * @param lowerTwist Minimum burulma açısı (radyan).
+     * @param upperTwist Maksimum burulma açısı (radyan).
+     */
+    void createConeTwistConstraint(Body& a, Body& b,
+                                  const Vector3& anchorA, const Vector3& anchorB,
+                                  const Vector3& twistA, const Vector3& twistB,
+                                  float swingLimit = 0.785398f,
+                                  float lowerTwist = -0.523599f,
+                                  float upperTwist = 0.523599f) {
+        Quaternion relOrientation = Quaternion::identity();
+        if (mRegistry.hasComponent<Pose>(a.getEntity()) && mRegistry.hasComponent<Pose>(b.getEntity())) {
+            const auto& poseA = mRegistry.getComponent<Pose>(a.getEntity());
+            const auto& poseB = mRegistry.getComponent<Pose>(b.getEntity());
+            relOrientation = poseA.orientation.getInverse() * poseB.orientation;
+        }
+        collision::ConeTwistConstraint constraint(a.getEntity(), b.getEntity(),
+                                                  anchorA, anchorB, twistA, twistB,
+                                                  relOrientation, swingLimit, lowerTwist, upperTwist);
+        mRegistry.addComponent(a.getEntity(), constraint);
+    }
+
+    /**
+     * @brief Koni-burulma (Cone-Twist) eklemine koni salınım ve burulma limitleri atar.
+     * @param body Eklem bileşenine sahip cisim.
+     * @param swingLimit Maksimum salınım koni yarı-açısı (radyan).
+     * @param lowerTwist Minimum eksenel burulma açısı (radyan).
+     * @param upperTwist Maksimum eksenel burulma açısı (radyan).
+     */
+    void setConeTwistLimits(Body& body, float swingLimit, float lowerTwist, float upperTwist) {
+        if (mRegistry.hasComponent<collision::ConeTwistConstraint>(body.getEntity())) {
+            auto& ctc = mRegistry.getComponent<collision::ConeTwistConstraint>(body.getEntity());
+            ctc.setLimits(swingLimit, lowerTwist, upperTwist);
+        }
+    }
+
     /// @}
 
     /// @name Ayarlar ve Durum Kaydı

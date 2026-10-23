@@ -132,6 +132,7 @@ Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimar
 - **Menteşe / Döner Eklem (`RevoluteConstraint`):** Tek bir eksen etrafında dönmeye (1-DOF) izin verir, 3 ötelenme ve 2 eksen dışı eğilmeyi kilitler; açısal sınırlar (`setRevoluteLimits`), açısal motor ve tork tavanı (`setRevoluteMotor`) destekler.
 - **Prizmatik Kayar Eklem (`PrismaticConstraint`):** 1 serbest doğrusal kayma eksenine izin verir (1-DOF), eksen dışı kaymaları ve dönmeleri kilitler; alt/üst sınırlar ve doğrusal motor destekler.
 - **Sönümlü Yay / Yumuşak Mesafe (`SpringConstraint`):** Hooke Yasası ve sönümlü harmonik salınıcı modeline dayalı esnek mesafe kısıtı. Erin Catto soft-constraint (uyumluluk $\gamma$ ve bias $\beta$) formülasyonu ile yüksek sertlik ve büyük zaman adımlarında koşulsuz kararlı çalışır.
+- **Koni-Burulma / Ragdoll Eklemi (`ConeTwistConstraint`):** 3 ötelenme serbestliğini noktasal ankorla kilitler; koni şeklinde açısal salınıma (swing cone, $\theta \le \theta_{max}$) ve birincil eksen etrafında burulmaya (axial twist, $[\psi_{min}, \psi_{max}]$) anatomik sınırlar dahilinde izin verir. İnsan omuzu, kalça mafsalı ve ragdoll karakter fiziği için kullanılır.
 
 ---
 
