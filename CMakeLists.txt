@@ -309,6 +309,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/GyroscopicTest.cpp")
     add_test(NAME GyroscopicTest COMMAND GyroscopicTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/GravityScaleTest.cpp")
+    add_executable(GravityScaleTest tests/GravityScaleTest.cpp)
+    target_link_libraries(GravityScaleTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME GravityScaleTest COMMAND GravityScaleTest)
+endif()
+
 
 
 

@@ -390,6 +390,24 @@ public:
   }
 
   /**
+   * @brief Cismin doğrusal sönümleme katsayısını döndürür.
+   */
+  [[nodiscard]] std::expected<float, PhysicsError> getLinearDamping() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::Motion>(mEntity).linearDamping;
+  }
+
+  /**
+   * @brief Cismin açısal sönümleme katsayısını döndürür.
+   */
+  [[nodiscard]] std::expected<float, PhysicsError> getAngularDamping() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::Motion>(mEntity).angularDamping;
+  }
+
+  /**
    * @brief Cismin doğrusal ve açısal sönümleme katsayılarını birlikte ayarlar.
    */
   std::expected<Body, PhysicsError> setDamping(float linear, float angular) {
@@ -399,6 +417,27 @@ public:
     motion.linearDamping = std::max(0.0f, linear);
     motion.angularDamping = std::max(0.0f, angular);
     return *this;
+  }
+
+  /**
+   * @brief Cismin yerçekimi ivmesi ölçek katsayısını ayarlar (gravityScale).
+   * @details 0.0 cismi yerçekimsiz (ağırlıksız) yapar; 1.0 normal yerçekimidir; negatif değerler ters yerçekimi uygular.
+   * @param scale Ölçek katsayısı (varsayılan 1.0f).
+   */
+  std::expected<Body, PhysicsError> setGravityScale(float scale) {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    mRegistry->getComponent<Core::Motion>(mEntity).gravityScale = scale;
+    return *this;
+  }
+
+  /**
+   * @brief Cismin geçerli yerçekimi ivmesi ölçek katsayısını döndürür.
+   */
+  [[nodiscard]] std::expected<float, PhysicsError> getGravityScale() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::Motion>(mEntity).gravityScale;
   }
 
   std::expected<Body, PhysicsError>

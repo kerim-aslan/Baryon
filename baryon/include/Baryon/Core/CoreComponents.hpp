@@ -55,6 +55,7 @@ struct Motion {
 
     float linearDamping{0.05f};                    ///< Doğrusal hava direnci sönümleme katsayısı.
     float angularDamping{0.05f};                   ///< Açısal hava direnci sönümleme katsayısı.
+    float gravityScale{1.0f};                      ///< Gövde bazlı yerçekimi ivmesi ölçek katsayısı (varsayılan 1.0f).
     
     Vector3 externalForce{0.0f, 0.0f, 0.0f};    ///< Bu karede cisme uygulanan toplam itme kuvveti (Newton).
     Vector3 externalTorque{0.0f, 0.0f, 0.0f};   ///< Bu karede cisme uygulanan toplam dönme kuvveti (N·m).

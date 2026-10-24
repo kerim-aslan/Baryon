@@ -71,7 +71,7 @@ void Integrator::integrateVelocities(float deltaTime) {
         motion.linearVelocity *= linDampFactor;
 
         // Doğrusal ivme ve sönümleme
-        Vector3 linearAcceleration = mAccelerationField + (motion.externalForce * mass.inverseMass);
+        Vector3 linearAcceleration = (mAccelerationField * motion.gravityScale) + (motion.externalForce * mass.inverseMass);
         motion.linearVelocity += linearAcceleration * deltaTime;
         if (state.lockedAxes & Core::LockAxis::LinearX) motion.linearVelocity.x = 0.0f;
         if (state.lockedAxes & Core::LockAxis::LinearY) motion.linearVelocity.y = 0.0f;
