@@ -68,6 +68,9 @@ struct SimulationSettings {
 
     /// @brief Jiroskopik tork (Euler hareket denklemleri / Dzhanibekov etkisi) hesaplamasını açar/kapatır. Varsayılan: false.
     bool enableGyroscopicTorque{false};
+
+    /// @brief Çok iş parçacıklı ada çözücüsü için iş parçacığı sayısı (1: tek iş parçacıklı, >1: belirtilen sayıda iş parçacığı, 0: donanım eşzamanlılığı). Varsayılan: 1.
+    uint32_t threadCount{1};
 };
 
 } // namespace Baryon

@@ -32,8 +32,9 @@
 #include "Baryon/collision/Sweep.hpp"
 #include "Baryon/collision/CollisionListener.hpp"
 #include "Baryon/collision/JointBreakListener.hpp"
+#include "Baryon/Core/ThreadPool.hpp"
 #include <functional>
-
+#include <memory>
 #include <vector>
 
 /**
@@ -74,14 +75,20 @@ private:
     systems::CollisionSystem mCollisionSystem;   ///< Kesin çarpışma tespit birimi.
     systems::SequentialImpulsesKernel mSolver;   ///< Çarpışma ve eklem kuvveti uygulayıcı.
     systems::IslandSystem mIslandSystem;         ///< Optimizasyon ve uyku (sleep) yöneticisi.
+    std::unique_ptr<Core::ThreadPool> mThreadPool; ///< Çok iş parçacıklı ada çözücüsü için havuz.
     /// @}
 
     SimulationSettings mSettings;               ///< Simülasyon yapılandırma ayarları.
     float mFixedTimeStep{1.0f / 60.0f};         ///< Sabit fizik adım boyutu (Varsayılan: 16.67ms).
     float mAccumulator{0.0f};                    ///< Kareler arası zamanı dengeleyen biriktirici.
     int mMaxSubSteps{8};                         ///< Tek bir karede izin verilen maksimum alt adım sayısı.
+    double mLastSolverTimeMs{0.0};               ///< Son adımda ada çözücüsünde harcanan süre (milisaniye).
     
 public:
+    /**
+     * @brief Son adımda ada çözücüsünde (mSolver.executeIslands) geçen süreyi milisaniye olarak döndürür.
+     */
+    [[nodiscard]] double getLastSolverTimeMs() const { return mLastSolverTimeMs; }
     /**
      * @brief Simülatörü ve tüm alt fizik sistemlerini başlatır.
      */

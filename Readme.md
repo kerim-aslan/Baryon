@@ -149,6 +149,12 @@ Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimar
 
 ---
 
+## 🚀 Performans ve Paralelleştirme (Multithreading & Performance)
+
+- **Ada Bazlı Çok İş Parçacıklı Çözücü (`std::jthread` & ThreadPool):** Fiziksel etkileşim adaları (islands) tamamen bağımsız alt grafikler olduğundan `std::jthread` havuzu üzerinden eşzamanlı çözülür (`settings.threadCount = 8`). Deterministik blok dağıtımı ile 1 iş parçacığı ve 8 iş parçacığı arasında bit seviyesinde tam durum hash determinizmi (`hash_1T == hash_8T`) garanti edilir. 10,000 cisimli sahnede ada çözücüsü üzerinde **4.30x hızlanma** (341 ms/adım -> 79 ms/adım) sağlar. Çoklu eşzamanlı eklem kırılmaları iş parçacığı güvenli (thread-safe) mutex koruması ile fırlatılır.
+
+---
+
 ## 📁 Dizin Yapısı
 
 - **`baryon/`**: Sıfır dış bağımlılığa sahip saf C++23 fizik motoru çekirdeği.

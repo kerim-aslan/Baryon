@@ -57,6 +57,16 @@ void Simulator::setSettings(const SimulationSettings &settings) {
 	mCollisionSystem.setSpeculativeContactsEnabled(settings.enableSpeculativeContacts);
 	mCollisionSystem.setMaxSpeculativeDistance(settings.maxSpeculativeDistance);
 	mIntegrator.setGyroscopicTorqueEnabled(settings.enableGyroscopicTorque);
+
+	if (settings.threadCount > 1 || settings.threadCount == 0) {
+		if (!mThreadPool || mThreadPool->getThreadCount() != settings.threadCount) {
+			mThreadPool = std::make_unique<Core::ThreadPool>(settings.threadCount);
+		}
+		mSolver.setThreadPool(mThreadPool.get());
+	} else {
+		mThreadPool.reset();
+		mSolver.setThreadPool(nullptr);
+	}
 }
 
 /**
@@ -249,6 +259,7 @@ void Simulator::step(float deltaTime) {
 		return;
 	}
 
+	mLastSolverTimeMs = 0.0;
 	mAccumulator += deltaTime;
 
 	// Ölüm Spirali (Spiral of Death) Koruması:
@@ -293,7 +304,10 @@ void Simulator::step(float deltaTime) {
 			auto islands = mIslandSystem.buildIslands(mCollisionSystem.getManifolds());
 
 			// 5. Her nesne grubu için fiziksel tepkileri hesapla
+			auto tSolveStart = std::chrono::high_resolution_clock::now();
 			mSolver.executeIslands(islands, mCollisionSystem.getManifolds(), subDt, mSettings.velocityIterations, mSettings.positionIterations);
+			auto tSolveEnd = std::chrono::high_resolution_clock::now();
+			mLastSolverTimeMs += std::chrono::duration<double, std::milli>(tSolveEnd - tSolveStart).count();
 
 			// 6. Güncellenmiş hızları kullanarak konumları değiştir
 			mIntegrator.integratePositions(subDt);

@@ -422,11 +422,14 @@ void SequentialImpulsesKernel::solveSingleIsland(
             stB.isSleeping = false;
             stB.sleepTimer = 0.0f;
           }
-          if (mJointBreakListener) {
-            mJointBreakListener->onJointBroken(c->entityA, c->entityB, c->appliedImpulseLinear);
-          }
-          if (mJointBreakCallback) {
-            mJointBreakCallback(c->entityA, c->entityB, c->appliedImpulseLinear);
+          if (mJointBreakListener || mJointBreakCallback) {
+            std::lock_guard<std::mutex> lock(mJointBreakMutex);
+            if (mJointBreakListener) {
+              mJointBreakListener->onJointBroken(c->entityA, c->entityB, c->appliedImpulseLinear);
+            }
+            if (mJointBreakCallback) {
+              mJointBreakCallback(c->entityA, c->entityB, c->appliedImpulseLinear);
+            }
           }
         }
       }
@@ -509,40 +512,30 @@ void SequentialImpulsesKernel::execute(
 }
 
 std::vector<std::vector<collision::ContactManifold *>>
-SequentialImpulsesKernel::routeAndSortIslandManifolds(
+SequentialImpulsesKernel::routeIslandManifolds(
     std::unordered_map<uint64_t, collision::ContactManifold> &manifoldMap,
-    const std::unordered_map<uint64_t, size_t> &entityToIsland,
+    const std::vector<uint32_t> &entityToIsland,
     size_t islandCount) {
   std::vector<std::vector<collision::ContactManifold *>> islandManifolds(islandCount);
   for (auto &[key, manifold] : manifoldMap) {
-    auto itA = entityToIsland.find(manifold.entityA.id);
-    if (itA != entityToIsland.end()) {
-      islandManifolds[itA->second].push_back(&manifold);
+    uint32_t idxA = ecs::EntityManager::getIndex(manifold.entityA);
+    uint32_t isA = (idxA < entityToIsland.size()) ? entityToIsland[idxA] : UINT32_MAX;
+    if (isA != UINT32_MAX) {
+      islandManifolds[isA].push_back(&manifold);
     } else {
-      auto itB = entityToIsland.find(manifold.entityB.id);
-      if (itB != entityToIsland.end()) {
-        islandManifolds[itB->second].push_back(&manifold);
+      uint32_t idxB = ecs::EntityManager::getIndex(manifold.entityB);
+      uint32_t isB = (idxB < entityToIsland.size()) ? entityToIsland[idxB] : UINT32_MAX;
+      if (isB != UINT32_MAX) {
+        islandManifolds[isB].push_back(&manifold);
       }
     }
-  }
-
-  for (auto &list : islandManifolds) {
-    auto lowY = [&](collision::ContactManifold *m) {
-      float ya = mRegistry.hasComponent<Pose>(m->entityA) ? mRegistry.getComponent<Pose>(m->entityA).position.y : 1e9f;
-      float yb = mRegistry.hasComponent<Pose>(m->entityB) ? mRegistry.getComponent<Pose>(m->entityB).position.y : 1e9f;
-      return std::min(ya, yb);
-    };
-    std::sort(list.begin(), list.end(), [&](auto *a, auto *b) {
-      float ya = lowY(a), yb = lowY(b);
-      return ya != yb ? ya < yb : a->entityA.id < b->entityA.id;
-    });
   }
   return islandManifolds;
 }
 
 std::vector<std::vector<SequentialImpulsesKernel::ConstraintRef>>
 SequentialImpulsesKernel::routeIslandConstraints(
-    const std::unordered_map<uint64_t, size_t> &entityToIsland,
+    const std::vector<uint32_t> &entityToIsland,
     size_t islandCount) {
   std::vector<std::vector<ConstraintRef>> islandConstraints(islandCount);
 
@@ -553,13 +546,15 @@ SequentialImpulsesKernel::routeIslandConstraints(
         for (auto &constraint : pool.getAllData()) {
           if (!constraint.isEnabled || constraint.isBroken)
             continue;
-          auto itA = entityToIsland.find(constraint.entityA.id);
-          if (itA != entityToIsland.end()) {
-            islandConstraints[itA->second].push_back(&constraint);
+          uint32_t idxA = ecs::EntityManager::getIndex(constraint.entityA);
+          uint32_t isA = (idxA < entityToIsland.size()) ? entityToIsland[idxA] : UINT32_MAX;
+          if (isA != UINT32_MAX) {
+            islandConstraints[isA].push_back(&constraint);
           } else {
-            auto itB = entityToIsland.find(constraint.entityB.id);
-            if (itB != entityToIsland.end()) {
-              islandConstraints[itB->second].push_back(&constraint);
+            uint32_t idxB = ecs::EntityManager::getIndex(constraint.entityB);
+            uint32_t isB = (idxB < entityToIsland.size()) ? entityToIsland[idxB] : UINT32_MAX;
+            if (isB != UINT32_MAX) {
+              islandConstraints[isB].push_back(&constraint);
             }
           }
         }
@@ -622,30 +617,57 @@ void SequentialImpulsesKernel::executeIslands(
   if (islands.empty())
     return;
 
-  // 1. Dinamik varlıkları ada indekslerine eşle (O(N))
-  std::unordered_map<uint64_t, size_t> entityToIsland;
-  size_t totalEntities = 0;
+  // 1. Dinamik varlıkları yoğun ada indeks dizisine eşle (O(N) direkt erişim)
+  uint32_t maxIdx = 0;
   for (const auto &island : islands) {
-    totalEntities += island.size();
-  }
-  entityToIsland.reserve(totalEntities * 2);
-
-  for (size_t i = 0; i < islands.size(); ++i) {
-    for (ecs::Entity e : islands[i]) {
-      entityToIsland[e.id] = i;
+    for (ecs::Entity e : island) {
+      uint32_t idx = ecs::EntityManager::getIndex(e);
+      if (idx > maxIdx) maxIdx = idx;
     }
   }
 
-  // 2. Manifoldları ilgili adalara yönlendir ve sırala (O(M))
-  auto islandManifolds = routeAndSortIslandManifolds(manifolds, entityToIsland, islands.size());
+  if (mEntityToIsland.size() <= maxIdx) {
+    mEntityToIsland.resize(maxIdx + 1, UINT32_MAX);
+  } else {
+    std::fill(mEntityToIsland.begin(), mEntityToIsland.end(), UINT32_MAX);
+  }
+
+  for (size_t i = 0; i < islands.size(); ++i) {
+    for (ecs::Entity e : islands[i]) {
+      mEntityToIsland[ecs::EntityManager::getIndex(e)] = static_cast<uint32_t>(i);
+    }
+  }
+
+  // 2. Manifoldları ilgili adalara yönlendir (O(M))
+  auto islandManifolds = routeIslandManifolds(manifolds, mEntityToIsland, islands.size());
 
   // 3. Kısıtlamaları ilgili adalara yönlendir (O(C))
-  auto islandConstraints = routeIslandConstraints(entityToIsland, islands.size());
+  auto islandConstraints = routeIslandConstraints(mEntityToIsland, islands.size());
 
-  // 4. Her adayı kendi temasları ve kısıtlamaları ile çöz
-  for (size_t i = 0; i < islands.size(); ++i) {
-    solveSingleIsland(islandManifolds[i], islandConstraints[i],
+  // 4. Her adayı kendi temasları ve kısıtlamaları ile çöz (sıralama ada iş parçacığı içinde paralel yapılır)
+  auto solveIslandTask = [&](size_t i) {
+    auto &list = islandManifolds[i];
+    if (list.size() > 1) {
+      auto lowY = [&](collision::ContactManifold *m) {
+        float ya = mRegistry.hasComponent<Pose>(m->entityA) ? mRegistry.getComponent<Pose>(m->entityA).position.y : 1e9f;
+        float yb = mRegistry.hasComponent<Pose>(m->entityB) ? mRegistry.getComponent<Pose>(m->entityB).position.y : 1e9f;
+        return std::min(ya, yb);
+      };
+      std::sort(list.begin(), list.end(), [&](auto *a, auto *b) {
+        float ya = lowY(a), yb = lowY(b);
+        return ya != yb ? ya < yb : a->entityA.id < b->entityA.id;
+      });
+    }
+    solveSingleIsland(list, islandConstraints[i],
                       deltaTime, velocityIterations, positionIterations);
+  };
+
+  if (mThreadPool && mThreadPool->getThreadCount() > 1 && islands.size() > 1) {
+    mThreadPool->parallelFor(islands.size(), solveIslandTask);
+  } else {
+    for (size_t i = 0; i < islands.size(); ++i) {
+      solveIslandTask(i);
+    }
   }
 }
 
