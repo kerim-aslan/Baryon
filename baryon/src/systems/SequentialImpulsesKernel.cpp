@@ -26,12 +26,12 @@
 
 #include "Baryon/systems/SequentialImpulsesKernel.hpp"
 #include "Baryon/Core/DebugManager.hpp"
-#include "Baryon/collision/BallSocketConstraint.hpp"
-#include "Baryon/collision/DistanceConstraint.hpp"
-#include "Baryon/collision/FixedConstraint.hpp"
+#include "Baryon/constraints/BallSocketConstraint.hpp"
+#include "Baryon/constraints/DistanceConstraint.hpp"
+#include "Baryon/constraints/FixedConstraint.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
-#include "Baryon/collision/PrismaticConstraint.hpp"
-#include "Baryon/collision/RevoluteConstraint.hpp"
+#include "Baryon/constraints/PrismaticConstraint.hpp"
+#include "Baryon/constraints/RevoluteConstraint.hpp"
 #include "Baryon/collision/SimdContactSolver.hpp"
 #include "Baryon/math/Matrix3x3.hpp"
 #include <algorithm>

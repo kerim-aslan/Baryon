@@ -19,15 +19,15 @@
 #pragma once
 
 #include "Baryon/Core/Registry.hpp"
-#include "Baryon/collision/BallSocketConstraint.hpp"
+#include "Baryon/constraints/BallSocketConstraint.hpp"
 #include "Baryon/collision/ContactManifold.hpp"
-#include "Baryon/collision/ConeTwistConstraint.hpp"
-#include "Baryon/collision/DistanceConstraint.hpp"
-#include "Baryon/collision/FixedConstraint.hpp"
-#include "Baryon/collision/PrismaticConstraint.hpp"
-#include "Baryon/collision/RevoluteConstraint.hpp"
-#include "Baryon/collision/SpringConstraint.hpp"
-#include "Baryon/collision/JointBreakListener.hpp"
+#include "Baryon/constraints/ConeTwistConstraint.hpp"
+#include "Baryon/constraints/DistanceConstraint.hpp"
+#include "Baryon/constraints/FixedConstraint.hpp"
+#include "Baryon/constraints/PrismaticConstraint.hpp"
+#include "Baryon/constraints/RevoluteConstraint.hpp"
+#include "Baryon/constraints/SpringConstraint.hpp"
+#include "Baryon/constraints/JointBreakListener.hpp"
 #include "Baryon/Core/ThreadPool.hpp"
 #include <vector>
 #include <unordered_map>

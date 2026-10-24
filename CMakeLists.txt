@@ -321,7 +321,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/MultithreadedIslandTest.cpp")
     add_test(NAME MultithreadedIslandTest COMMAND MultithreadedIslandTest)
 endif()
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SimdSolverTest.cpp")
+if(BARYON_ENABLE_SIMD AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SimdSolverTest.cpp")
     add_executable(SimdSolverTest tests/SimdSolverTest.cpp)
     target_link_libraries(SimdSolverTest PRIVATE Baryon::BaryonStatic)
     add_test(NAME SimdSolverTest COMMAND SimdSolverTest)

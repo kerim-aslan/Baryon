@@ -50,6 +50,7 @@ else()
     target_compile_options(${TARGET_NAME}_static PRIVATE -Wall -Wextra -Wshadow -Wconversion)
 endif()
 
+# --- Modularity & Extension Options ---
 option(BARYON_ENABLE_SIMD "Baryon SIMD kontak cozucu destegi" OFF)
 if(BARYON_ENABLE_SIMD)
     target_compile_definitions(${TARGET_NAME}_shared PUBLIC BARYON_ENABLE_SIMD)
@@ -61,6 +62,18 @@ if(BARYON_ENABLE_SIMD)
         target_compile_options(${TARGET_NAME}_shared PRIVATE -mavx2 -mfma)
         target_compile_options(${TARGET_NAME}_static PRIVATE -mavx2 -mfma)
     endif()
+endif()
+
+option(BARYON_ENABLE_MULTITHREADING "Baryon cok is parcacikli ada cozucu destegi (std::jthread ThreadPool)" ON)
+if(BARYON_ENABLE_MULTITHREADING)
+    target_compile_definitions(${TARGET_NAME}_shared PUBLIC BARYON_ENABLE_MULTITHREADING)
+    target_compile_definitions(${TARGET_NAME}_static PUBLIC BARYON_ENABLE_MULTITHREADING)
+endif()
+
+option(BARYON_ENABLE_DEBUG_TOOLS "Baryon hata ayiklama ve log yoneticisi destegi" ON)
+if(BARYON_ENABLE_DEBUG_TOOLS)
+    target_compile_definitions(${TARGET_NAME}_shared PUBLIC BARYON_ENABLE_DEBUG_TOOLS)
+    target_compile_definitions(${TARGET_NAME}_static PUBLIC BARYON_ENABLE_DEBUG_TOOLS)
 endif()
 
 # Modern CMake Alias (Allows target_link_libraries(MyProject PRIVATE Baryon::Baryon))

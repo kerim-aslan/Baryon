@@ -31,7 +31,7 @@
 #include "Baryon/collision/Ray.hpp"
 #include "Baryon/collision/Sweep.hpp"
 #include "Baryon/collision/CollisionListener.hpp"
-#include "Baryon/collision/JointBreakListener.hpp"
+#include "Baryon/constraints/JointBreakListener.hpp"
 #include "Baryon/Core/ThreadPool.hpp"
 #include <functional>
 #include <memory>
