@@ -303,6 +303,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SpeculativeContactsTest.cpp")
     add_test(NAME SpeculativeContactsTest COMMAND SpeculativeContactsTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/GyroscopicTest.cpp")
+    add_executable(GyroscopicTest tests/GyroscopicTest.cpp)
+    target_link_libraries(GyroscopicTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME GyroscopicTest COMMAND GyroscopicTest)
+endif()
+
 
 
 

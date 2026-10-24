@@ -132,6 +132,7 @@ struct BodyState {
     float ccdMotionThreshold{0.0f};     ///< CCD'nin devreye girmesi için cismin o karede ulaşması gereken minimum hız eşiği.
     bool ccdIntegrated{false};          ///< CCD bu adımda konum entegrasyonunu tamamladı mı?
     bool useSpeculativeContacts{false}; ///< Spekülatif kontak (öngörülü çarpışma - CCD olmadan tünelleme önleme) aktif mi?
+    bool useGyroscopicTorque{false};    ///< Jiroskopik tork (Euler hareket denklemleri) entegrasyonu aktif mi?
 };
 
 /**

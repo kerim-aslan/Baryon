@@ -93,6 +93,25 @@ public:
   }
 
   /**
+   * @brief Cismin dünya koordinatlarındaki tam durumunu (Pose: pozisyon + yönelim) döndürür.
+   */
+  [[nodiscard]] std::expected<Pose, PhysicsError> getPose() const {
+    if (!isActive() || !mRegistry->hasComponent<Pose>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Pose>(mEntity);
+  }
+
+  /**
+   * @brief Cismin dünya koordinatlarındaki tam durumunu (Pose) günceller.
+   */
+  std::expected<Body, PhysicsError> setPose(const Pose &pose) {
+    if (!isActive() || !mRegistry->hasComponent<Pose>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    mRegistry->getComponent<Pose>(mEntity) = pose;
+    return *this;
+  }
+
+  /**
    * @brief Cismin doğrusal hızını döndürür.
    * @return Doğrusal hız vektörü (m/s) veya hata kodu.
    */
@@ -131,6 +150,26 @@ public:
     if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
       return std::unexpected(PhysicsError::EntityDead);
     return mRegistry->getComponent<Core::BodyState>(mEntity).useSpeculativeContacts;
+  }
+
+  /**
+   * @brief Cismin jiroskopik tork (Euler hareket denklemleri) özelliğini açar/kapatır.
+   * @param enabled true: jiroskopik tork aktif, false: pasif.
+   */
+  std::expected<Body, PhysicsError> setGyroscopicTorque(bool enabled) {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    mRegistry->getComponent<Core::BodyState>(mEntity).useGyroscopicTorque = enabled;
+    return *this;
+  }
+
+  /**
+   * @brief Cismin jiroskopik tork özelliğinin aktif olup olmadığını döndürür.
+   */
+  [[nodiscard]] std::expected<bool, PhysicsError> hasGyroscopicTorque() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::BodyState>(mEntity).useGyroscopicTorque;
   }
 
   /**
@@ -327,6 +366,38 @@ public:
     auto &state = mRegistry->getComponent<Core::BodyState>(mEntity);
     state.isSleeping = false;
     state.sleepTimer = 0.0f;
+    return *this;
+  }
+
+  /**
+   * @brief Cismin doğrusal sönümleme (hava sürtünmesi) katsayısını ayarlar.
+   */
+  std::expected<Body, PhysicsError> setLinearDamping(float damping) {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    mRegistry->getComponent<Core::Motion>(mEntity).linearDamping = std::max(0.0f, damping);
+    return *this;
+  }
+
+  /**
+   * @brief Cismin açısal sönümleme (dönme sürtünmesi) katsayısını ayarlar.
+   */
+  std::expected<Body, PhysicsError> setAngularDamping(float damping) {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    mRegistry->getComponent<Core::Motion>(mEntity).angularDamping = std::max(0.0f, damping);
+    return *this;
+  }
+
+  /**
+   * @brief Cismin doğrusal ve açısal sönümleme katsayılarını birlikte ayarlar.
+   */
+  std::expected<Body, PhysicsError> setDamping(float linear, float angular) {
+    if (!isActive() || !mRegistry->hasComponent<Core::Motion>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    auto &motion = mRegistry->getComponent<Core::Motion>(mEntity);
+    motion.linearDamping = std::max(0.0f, linear);
+    motion.angularDamping = std::max(0.0f, angular);
     return *this;
   }
 

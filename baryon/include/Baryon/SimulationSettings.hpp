@@ -65,6 +65,9 @@ struct SimulationSettings {
 
     /// @brief Spekülatif kontak üretimi için maksimum arama mesafesi (metre). Varsayılan: 15.0m.
     float maxSpeculativeDistance{15.0f};
+
+    /// @brief Jiroskopik tork (Euler hareket denklemleri / Dzhanibekov etkisi) hesaplamasını açar/kapatır. Varsayılan: false.
+    bool enableGyroscopicTorque{false};
 };
 
 } // namespace Baryon

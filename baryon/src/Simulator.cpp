@@ -56,6 +56,7 @@ void Simulator::setSettings(const SimulationSettings &settings) {
 	mSpatialPartitioning.setVelocityExpansion(settings.broadPhaseVelocityExpansion);
 	mCollisionSystem.setSpeculativeContactsEnabled(settings.enableSpeculativeContacts);
 	mCollisionSystem.setMaxSpeculativeDistance(settings.maxSpeculativeDistance);
+	mIntegrator.setGyroscopicTorqueEnabled(settings.enableGyroscopicTorque);
 }
 
 /**
@@ -262,6 +263,7 @@ void Simulator::step(float deltaTime) {
 
 		for (uint32_t sub = 0; sub < numSubSteps; ++sub) {
 			// 1. Dinamik kuvvetleri hıza aktar
+			mIntegrator.setGyroscopicTorqueEnabled(mSettings.enableGyroscopicTorque);
 			mIntegrator.integrateVelocities(subDt);
 
 			// 1b. Hızlı hareket eden nesneler için sürekli çarpışma kontrolü

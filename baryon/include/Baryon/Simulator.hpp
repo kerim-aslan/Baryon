@@ -169,6 +169,22 @@ public:
     }
 
     /**
+     * @brief Jiroskopik tork (Euler hareket denklemleri / Dzhanibekov etkisi) modunu genel olarak yapılandırır.
+     * @param enabled true: dünya genelinde jiroskopik tork aktif, false: pasif.
+     */
+    void setGyroscopicTorque(bool enabled) {
+        mSettings.enableGyroscopicTorque = enabled;
+        mIntegrator.setGyroscopicTorqueEnabled(enabled);
+    }
+
+    /**
+     * @brief Jiroskopik torkun devrede olup olmadığını döndürür.
+     */
+    [[nodiscard]] bool isGyroscopicTorqueEnabled() const {
+        return mSettings.enableGyroscopicTorque;
+    }
+
+    /**
      * @brief Dünyaya bir "lazer" (ışın) fırlatarak objeleri arar.
      * @details Başlangıç noktasından belirtilen yöne doğru fırlatılan ışının 
      *          çarptığı en yakın objenin bilgilerini döndürür.

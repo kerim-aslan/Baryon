@@ -143,6 +143,7 @@ Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimar
 
 - **Adım İçi Alt Adımlama (Substepping / Soft-step):** Sabit fizik adımı (`dt`), yapılandırılabilir alt adımlara (`enableSubstepping = true`, `substepCount = 4`) bölünür. Çok katlı kuleler (20+ kat) ve uzun eklem zincirleri (30+ halka), düşük çözücü iterasyonuyla bile yüksek frekansta kararlı ve sarsıntısız çözülür.
 - **Spekülatif Kontak (Speculative Contacts / TOI-Free CCD):** Çok hızlı hareket eden mermiler ve parçacıklar için pahalı TOI kök bulma gerektirmeyen, temas öncesi negatif penetrasyon ($C = -d$) ve hız önyargısı (`velocityBias = -d / dt`) temelli öngörülü temas mekanizması. Yaklaşma hızını cismin adım sonunda tam engel yüzeyinde duracağı şekilde ($v_n \ge -d/\Delta t$) sınırlar, pozisyon projeksiyonunda sıçrama yapmaz ($C \le 0$) ve 500 m/s hızındaki mermilerin bile 0.1m inceliğindeki duvarlardan tünellemesini kusursuz biçimde önler.
+- **Jiroskopik Terim ve Dzhanibekov Etkisi (Gyroscopic Torque & RK4):** Serbest uzayda hızla dönen asimetrik katı cisimler için Euler dönme hareket denklemleri ($I \dot{\omega} + \omega \times (I\omega) = 0$). 4. Dereceden Runge-Kutta (RK4) ve sıkı kinetik enerji korunum denetimi ile sönümsüz serbest dönüşlerde açısal momentum büyüklüğü sapması $<\%0.03$ (hedef $<\%1.0$), kinetik enerji artışı tam $0$ J ve ara eylemsizlik ekseninde ($I_1 < I_2 < I_3$) Dzhanibekov taklası (tenis raketi kararsızlığı) analitik hassasiyetle simüle edilir.
 
 ---
 

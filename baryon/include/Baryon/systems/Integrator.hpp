@@ -69,6 +69,16 @@ public:
      * @param deltaTime Geçen zaman adımı (saniye).
      */
     void integratePositions(float deltaTime);
+
+    /**
+     * @brief Jiroskopik tork (Euler hareket denklemleri) entegrasyonunu açar/kapatır.
+     * @param enabled true: jiroskopik tork aktif, false: pasif.
+     */
+    void setGyroscopicTorqueEnabled(bool enabled) { mEnableGyroscopicTorque = enabled; }
+    [[nodiscard]] bool isGyroscopicTorqueEnabled() const { return mEnableGyroscopicTorque; }
+
+private:
+    bool mEnableGyroscopicTorque{false}; ///< Sahne genelinde jiroskopik tork aktif mi?
 };
 
 } // namespace Baryon::systems

@@ -28,6 +28,7 @@
 #include "Baryon/Core/CoreComponents.hpp"
 #include "Baryon/collision/PhysicsConstants.hpp"
 #include <ranges>
+#include <cmath>
 
 namespace Baryon::systems {
 
@@ -83,6 +84,42 @@ void Integrator::integrateVelocities(float deltaTime) {
         // Açısal İvme: α = I⁻¹τ
         Vector3 angularAcceleration = mass.inverseInertiaTensor * motion.externalTorque;
         motion.angularVelocity += angularAcceleration * deltaTime;
+
+        // Jiroskopik Terim (Gyroscopic Torque / Euler Denklemleri / Dzhanibekov Etkisi)
+        if ((mEnableGyroscopicTorque || state.useGyroscopicTorque) && mRegistry.hasComponent<Pose>(entity)) {
+            const auto& pose = mRegistry.getComponent<Pose>(entity);
+            Matrix3x3 R = pose.getOrientationMatrix();
+            Vector3 wBody = R.getTranspose() * motion.angularVelocity;
+
+            // Çok küçük dönmelerde hesaplamayı atla
+            if (wBody.lengthSquare() > 1e-6f) {
+                // Euler hareket denklemleri: I * dw/dt + w x (I * w) = 0
+                // dw/dt = I⁻¹ * ( (I * w) x w )
+                auto computeEulerDeriv = [&](const Vector3& w) -> Vector3 {
+                    Vector3 Iw = mass.localInertiaTensor * w;
+                    Vector3 gyroTorque = Iw.cross(w); // Iw x w = - (w x Iw)
+                    return mass.inverseLocalInertiaTensor * gyroTorque;
+                };
+
+                // 4. Dereceden Runge-Kutta (RK4) entegrasyonu
+                Vector3 k1 = computeEulerDeriv(wBody);
+                Vector3 k2 = computeEulerDeriv(wBody + k1 * (0.5f * deltaTime));
+                Vector3 k3 = computeEulerDeriv(wBody + k2 * (0.5f * deltaTime));
+                Vector3 k4 = computeEulerDeriv(wBody + k3 * deltaTime);
+
+                Vector3 wBodyNew = wBody + (k1 + k2 * 2.0f + k3 * 2.0f + k4) * (deltaTime / 6.0f);
+
+                // Enerji korunum kuralı: Kinetik enerji kesinlikle artmamalıdır (E_new <= E_old)
+                float E_old = 0.5f * wBody.dot(mass.localInertiaTensor * wBody);
+                float E_new = 0.5f * wBodyNew.dot(mass.localInertiaTensor * wBodyNew);
+                if (E_new > E_old && E_new > 1e-8f) {
+                    wBodyNew *= std::sqrt(E_old / E_new);
+                }
+
+                motion.angularVelocity = R * wBodyNew;
+            }
+        }
+
         if (state.lockedAxes & Core::LockAxis::AngularX) motion.angularVelocity.x = 0.0f;
         if (state.lockedAxes & Core::LockAxis::AngularY) motion.angularVelocity.y = 0.0f;
         if (state.lockedAxes & Core::LockAxis::AngularZ) motion.angularVelocity.z = 0.0f;
