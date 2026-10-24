@@ -114,6 +114,26 @@ public:
   }
 
   /**
+   * @brief Spekülatif Kontak (öngörülü çarpışma) özelliğini açar/kapatır.
+   * @param enabled true: spekülatif kontak aktif, false: pasif.
+   */
+  std::expected<Body, PhysicsError> setSpeculativeContacts(bool enabled) {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    mRegistry->getComponent<Core::BodyState>(mEntity).useSpeculativeContacts = enabled;
+    return *this;
+  }
+
+  /**
+   * @brief Cismin spekülatif kontak özelliğinin aktif olup olmadığını döndürür.
+   */
+  [[nodiscard]] std::expected<bool, PhysicsError> hasSpeculativeContacts() const {
+    if (!isActive() || !mRegistry->hasComponent<Core::BodyState>(mEntity))
+      return std::unexpected(PhysicsError::EntityDead);
+    return mRegistry->getComponent<Core::BodyState>(mEntity).useSpeculativeContacts;
+  }
+
+  /**
    * @brief Cisme anlık bir itme (impulse) kuvveti uygular.
    * @param impulse Uygulanacak itme vektörü (N*s).
    */

@@ -1049,7 +1049,7 @@ void CollisionSystem::processCompoundCollision(
  * 5. Uyandırma: Çarpışma yaşayan uyuyan (sleeping) nesneleri tekrar simülasyona
  * dahil eder.
  */
-void CollisionSystem::step() {
+void CollisionSystem::step(float deltaTime) {
   const auto &pairs = mSpatialPartitioning.getPotentialCollisions();
 
   // Warm starting için önceki kareden kalan temas verilerini yedekle
@@ -1115,6 +1115,13 @@ void CollisionSystem::step() {
       } else {
         processConvexCollision(entityA, entityB, transA, transB, collA, collB, oldManifoldMap);
       }
+    }
+
+    // Spekülatif Kontak Kontrolü:
+    // Eğer ayrık dar faz çarpışma üretmediyse, hızlı yaklaşan cisimler için öngörülü kontak üret
+    uint64_t key = makeEntityPairKey(entityA, entityB);
+    if (!mManifoldMap.contains(key)) {
+      tryGenerateSpeculativeContact(entityA, entityB, transA, transB, collA, collB, deltaTime);
     }
   }
 
@@ -1378,6 +1385,161 @@ void CollisionSystem::applyCCD(ecs::Entity entity, float deltaTime) {
 
     state.ccdIntegrated = true;
   }
+}
+
+bool CollisionSystem::tryGenerateSpeculativeContact(
+    ecs::Entity entityA, ecs::Entity entityB,
+    const Pose &transA, const Pose &transB,
+    const ecs::ColliderData &collA, const ecs::ColliderData &collB,
+    float deltaTime) {
+  if (collA.isTrigger || collB.isTrigger)
+    return false;
+
+  bool specA = mRegistry.hasComponent<Core::BodyState>(entityA) &&
+               mRegistry.getComponent<Core::BodyState>(entityA).useSpeculativeContacts;
+  bool specB = mRegistry.hasComponent<Core::BodyState>(entityB) &&
+               mRegistry.getComponent<Core::BodyState>(entityB).useSpeculativeContacts;
+  if (!specA && !specB && !mEnableSpeculativeContacts)
+    return false;
+
+  Core::BodyType typeA = Core::BodyType::Dynamic;
+  Core::BodyType typeB = Core::BodyType::Dynamic;
+  if (mRegistry.hasComponent<Core::BodyState>(entityA))
+    typeA = mRegistry.getComponent<Core::BodyState>(entityA).type;
+  if (mRegistry.hasComponent<Core::BodyState>(entityB))
+    typeB = mRegistry.getComponent<Core::BodyState>(entityB).type;
+  if (typeA != Core::BodyType::Dynamic && typeB != Core::BodyType::Dynamic)
+    return false;
+
+  Vector3 velA(0.0f, 0.0f, 0.0f);
+  Vector3 velB(0.0f, 0.0f, 0.0f);
+  if (mRegistry.hasComponent<Core::Motion>(entityA))
+    velA = mRegistry.getComponent<Core::Motion>(entityA).linearVelocity;
+  if (mRegistry.hasComponent<Core::Motion>(entityB))
+    velB = mRegistry.getComponent<Core::Motion>(entityB).linearVelocity;
+
+  Vector3 relVel = velA - velB;
+  if (relVel.lengthSquare() < 1e-4f)
+    return false;
+
+  float closestDist = 1e9f;
+  Vector3 bestPA(0.0f, 0.0f, 0.0f);
+  Vector3 bestPB(0.0f, 0.0f, 0.0f);
+  bool found = false;
+
+  bool isMeshA = std::holds_alternative<collision::StaticMeshShape>(collA.shape.getVariant());
+  bool isMeshB = std::holds_alternative<collision::StaticMeshShape>(collB.shape.getVariant());
+
+  if (!isMeshA && !isMeshB) {
+    Vector3 pA, pB;
+    float dist = collision::NarrowPhase::GJK_distance(collA.shape, transA, collB.shape, transB, pA, pB);
+    closestDist = dist;
+    bestPA = pA;
+    bestPB = pB;
+    found = true;
+  } else if (isMeshB) {
+    const auto &meshShape = std::get<collision::StaticMeshShape>(collB.shape.getVariant());
+    if (meshShape.mesh) {
+      collision::AABB localAABB = collA.shape.computeLocalAABB();
+      float radiusA = (localAABB.maxBounds - localAABB.minBounds).length() * 0.5f;
+      Vector3 deltaPos = velA * deltaTime;
+      Vector3 localStart = transB.orientation.getConjugate() * (transA.position - transB.position);
+      Vector3 localEnd = transB.orientation.getConjugate() * (transA.position + deltaPos - transB.position);
+      Vector3 minP(std::min(localStart.x, localEnd.x) - radiusA - 1.0f,
+                   std::min(localStart.y, localEnd.y) - radiusA - 1.0f,
+                   std::min(localStart.z, localEnd.z) - radiusA - 1.0f);
+      Vector3 maxP(std::max(localStart.x, localEnd.x) + radiusA + 1.0f,
+                   std::max(localStart.y, localEnd.y) + radiusA + 1.0f,
+                   std::max(localStart.z, localEnd.z) + radiusA + 1.0f);
+      meshShape.mesh->queryTriangles(collision::AABB(minP, maxP), [&](const collision::TriangleShape &tri) {
+        collision::CollisionShape triShape(tri);
+        Vector3 pA, pB;
+        float dist = collision::NarrowPhase::GJK_distance(collA.shape, transA, triShape, transB, pA, pB);
+        if (dist < closestDist) {
+          closestDist = dist;
+          bestPA = pA;
+          bestPB = pB;
+          found = true;
+        }
+      });
+    }
+  } else if (isMeshA) {
+    const auto &meshShape = std::get<collision::StaticMeshShape>(collA.shape.getVariant());
+    if (meshShape.mesh) {
+      collision::AABB localAABB = collB.shape.computeLocalAABB();
+      float radiusB = (localAABB.maxBounds - localAABB.minBounds).length() * 0.5f;
+      Vector3 deltaPos = velB * deltaTime;
+      Vector3 localStart = transA.orientation.getConjugate() * (transB.position - transA.position);
+      Vector3 localEnd = transA.orientation.getConjugate() * (transB.position + deltaPos - transA.position);
+      Vector3 minP(std::min(localStart.x, localEnd.x) - radiusB - 1.0f,
+                   std::min(localStart.y, localEnd.y) - radiusB - 1.0f,
+                   std::min(localStart.z, localEnd.z) - radiusB - 1.0f);
+      Vector3 maxP(std::max(localStart.x, localEnd.x) + radiusB + 1.0f,
+                   std::max(localStart.y, localEnd.y) + radiusB + 1.0f,
+                   std::max(localStart.z, localEnd.z) + radiusB + 1.0f);
+      meshShape.mesh->queryTriangles(collision::AABB(minP, maxP), [&](const collision::TriangleShape &tri) {
+        collision::CollisionShape triShape(tri);
+        Vector3 pA, pB;
+        float dist = collision::NarrowPhase::GJK_distance(triShape, transA, collB.shape, transB, pA, pB);
+        if (dist < closestDist) {
+          closestDist = dist;
+          bestPA = pA;
+          bestPB = pB;
+          found = true;
+        }
+      });
+    }
+  }
+
+  if (!found || closestDist <= 1e-4f || closestDist > mMaxSpeculativeDistance)
+    return false;
+
+  Vector3 normal = bestPA - bestPB;
+  float normLen = normal.length();
+  if (normLen > 1e-6f) {
+    normal = normal * (1.0f / normLen);
+  } else {
+    normal = (transA.position - transB.position).getNormalized();
+    if (normal.lengthSquare() < 1e-4f)
+      normal = Vector3(0.0f, 1.0f, 0.0f);
+  }
+
+  // Normal sözleşmesi: B'den A'ya bakar.
+  // Yaklaşma hızı: -relVel.dot(normal). Yaklaşırken relVel.dot(normal) < 0 olmalıdır.
+  float normalVel = relVel.dot(normal);
+  if (normalVel >= -1e-4f)
+    return false;
+
+  float approachSpeed = -normalVel;
+  float approachDist = approachSpeed * deltaTime;
+  if (approachDist < closestDist - 1e-4f)
+    return false;
+
+  // Spekülatif temas noktası üret (negatif penetrasyon)
+  uint64_t key = makeEntityPairKey(entityA, entityB);
+  collision::ContactManifold specManifold(entityA, entityB);
+  specManifold.normal = normal;
+  specManifold.penetration = -closestDist;
+  specManifold.isTriggerPair = false;
+  specManifold.computeTangents();
+
+  collision::ContactPoint cp;
+  cp.worldPosition = (bestPA + bestPB) * 0.5f;
+  cp.localPointA = transA.orientation.getConjugate() * (bestPA - transA.position);
+  cp.localPointB = transB.orientation.getConjugate() * (bestPB - transB.position);
+  cp.penetration = -closestDist;
+  cp.normalImpulse = 0.0f;
+  cp.tangentImpulse1 = 0.0f;
+  cp.tangentImpulse2 = 0.0f;
+  cp.tangentImpulse = 0.0f;
+  cp.splitImpulse = 0.0f;
+  cp.velocityBias = (deltaTime > 1e-6f) ? (-closestDist / deltaTime) : 0.0f;
+
+  specManifold.addContact(cp);
+  wakeIfSleeping(entityA);
+  wakeIfSleeping(entityB);
+  mManifoldMap.insert_or_assign(key, specManifold);
+  return true;
 }
 
 } // namespace Baryon::systems

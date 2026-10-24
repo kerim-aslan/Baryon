@@ -152,6 +152,23 @@ public:
     }
 
     /**
+     * @brief Spekülatif Kontak (öngörülü çarpışma) modunu genel olarak yapılandırır.
+     * @param enabled true: dünya genelinde spekülatif kontak aktif, false: pasif.
+     * @param maxDistance Maksimum spekülatif arama mesafesi (metre).
+     */
+    void setSpeculativeContacts(bool enabled, float maxDistance = 15.0f) {
+        mSettings.enableSpeculativeContacts = enabled;
+        mSettings.maxSpeculativeDistance = maxDistance;
+    }
+
+    /**
+     * @brief Spekülatif kontağın devrede olup olmadığını döndürür.
+     */
+    [[nodiscard]] bool isSpeculativeContactsEnabled() const {
+        return mSettings.enableSpeculativeContacts;
+    }
+
+    /**
      * @brief Dünyaya bir "lazer" (ışın) fırlatarak objeleri arar.
      * @details Başlangıç noktasından belirtilen yöne doğru fırlatılan ışının 
      *          çarptığı en yakın objenin bilgilerini döndürür.

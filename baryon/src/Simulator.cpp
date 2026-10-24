@@ -54,6 +54,8 @@ void Simulator::setSettings(const SimulationSettings &settings) {
 	mMaxSubSteps = settings.maxSubSteps;
 	mIslandSystem.setSleepThresholds(settings.sleepLinearThreshold, settings.sleepAngularThreshold, settings.timeToSleep);
 	mSpatialPartitioning.setVelocityExpansion(settings.broadPhaseVelocityExpansion);
+	mCollisionSystem.setSpeculativeContactsEnabled(settings.enableSpeculativeContacts);
+	mCollisionSystem.setMaxSpeculativeDistance(settings.maxSpeculativeDistance);
 }
 
 /**
@@ -276,10 +278,14 @@ void Simulator::step(float deltaTime) {
 			}
 
 			// 2. Sınır kutularını (AABB) güncelle ve adayları filtrele
+			float expansion = std::max(mSettings.broadPhaseVelocityExpansion, subDt);
+			mSpatialPartitioning.setVelocityExpansion(expansion);
 			mSpatialPartitioning.step();
 
 			// 3. Kesin çarpışma testlerini yap ve temas noktalarını üret
-			mCollisionSystem.step();
+			mCollisionSystem.setSpeculativeContactsEnabled(mSettings.enableSpeculativeContacts);
+			mCollisionSystem.setMaxSpeculativeDistance(mSettings.maxSpeculativeDistance);
+			mCollisionSystem.step(subDt);
 
 			// 4. Etkileşim halindeki nesne gruplarını ayır (aktif adaları kur)
 			auto islands = mIslandSystem.buildIslands(mCollisionSystem.getManifolds());

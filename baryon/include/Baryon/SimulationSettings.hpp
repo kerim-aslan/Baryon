@@ -59,6 +59,12 @@ struct SimulationSettings {
 
     /// @brief Her bir sabit fizik adımı için çalıştırılacak alt adım sayısı. Varsayılan: 1.
     uint32_t substepCount{1};
+
+    /// @brief Spekülatif kontak (öngörülü çarpışma) özelliğini açar/kapatır. Varsayılan: false.
+    bool enableSpeculativeContacts{false};
+
+    /// @brief Spekülatif kontak üretimi için maksimum arama mesafesi (metre). Varsayılan: 15.0m.
+    float maxSpeculativeDistance{15.0f};
 };
 
 } // namespace Baryon

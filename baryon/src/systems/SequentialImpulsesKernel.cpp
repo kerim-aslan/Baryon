@@ -664,7 +664,6 @@ void SequentialImpulsesKernel::solveConstraintsForIsland(
 
 void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
                                        float deltaTime) {
-  (void)deltaTime;
   if (!mRegistry.hasComponent<Pose>(manifold.entityA) ||
       !mRegistry.hasComponent<Pose>(manifold.entityB))
     return;
@@ -727,6 +726,13 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
     auto &contact = manifold.contacts[i];
     contact.splitImpulse = 0.0f;
 
+    // Spekülatif kontaklarda önceki kareden kalan itmeler sıfırlanmalıdır
+    if (contact.penetration < 0.0f) {
+      contact.normalImpulse = 0.0f;
+      contact.tangentImpulse1 = 0.0f;
+      contact.tangentImpulse2 = 0.0f;
+    }
+
     Vector3 rA = poseA.orientation * contact.localPointA;
     Vector3 rB = poseB.orientation * contact.localPointB;
 
@@ -736,7 +742,13 @@ void SequentialImpulsesKernel::preStep(collision::ContactManifold &manifold,
     float normalVel = relVel.dot(n);
 
     contact.velocityBias = 0.0f;
-    if (normalVel < -physics::PhysicsConstants::RestitutionVelocityThreshold) {
+    if (contact.penetration < 0.0f) {
+      // Spekülatif kontak: ayrılma mesafesi d = -contact.penetration
+      // Hız çözücü hedefi: v_n >= -d / dt (yüzeye tam varacak şekilde frenleme)
+      if (deltaTime > 1e-6f) {
+        contact.velocityBias = contact.penetration / deltaTime;
+      }
+    } else if (normalVel < -physics::PhysicsConstants::RestitutionVelocityThreshold) {
       contact.velocityBias = -restitution * normalVel;
     }
   }

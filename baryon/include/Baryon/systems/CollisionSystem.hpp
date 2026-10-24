@@ -84,6 +84,14 @@ private:
                                   const ecs::ColliderData& collA, const ecs::ColliderData& collB,
                                   const std::unordered_map<uint64_t, collision::ContactManifold>& oldManifoldMap);
 
+    bool tryGenerateSpeculativeContact(ecs::Entity entityA, ecs::Entity entityB,
+                                       const Pose& transA, const Pose& transB,
+                                       const ecs::ColliderData& collA, const ecs::ColliderData& collB,
+                                       float deltaTime);
+
+    bool mEnableSpeculativeContacts{false};          ///< Global spekülatif kontak aktif mi?
+    float mMaxSpeculativeDistance{15.0f};            ///< Maksimum arama mesafesi (metre).
+
 public:
     /**
      * @brief Çarpışma sistemini başlatır.
@@ -100,8 +108,10 @@ public:
      * 3. Çarpışma varsa, iç içe geçme miktarını ve normali (EPA) hesaplar.
      * 4. Temas noktalarını günceller ve fizik çözücüsü için hazır hale getirir.
      * 5. Statik modeller (StaticMesh) gibi karmaşık yapıları üçgen bazlı test eder.
+     * 6. Ayrık temas bulunamadıysa ve hızlı cisim yaklaşıyorsa spekülatif kontak üretir.
+     * @param deltaTime Geçen zaman adımı (saniye).
      */
-    void step();
+    void step(float deltaTime = 0.01667f);
 
     /**
      * @brief Hızlı hareket eden cisimler için Sürekli Çarpışma Algılama (CCD) uygular.
@@ -122,6 +132,12 @@ public:
 
     void setListener(CollisionListener* listener) { mListener = listener; }
     void setAccelerationField(const Vector3& accel) { mAccelerationField = accel; }
+
+    void setSpeculativeContactsEnabled(bool enabled) { mEnableSpeculativeContacts = enabled; }
+    [[nodiscard]] bool isSpeculativeContactsEnabled() const { return mEnableSpeculativeContacts; }
+
+    void setMaxSpeculativeDistance(float dist) { mMaxSpeculativeDistance = dist; }
+    [[nodiscard]] float getMaxSpeculativeDistance() const { return mMaxSpeculativeDistance; }
 };
 
 } // namespace Baryon::systems

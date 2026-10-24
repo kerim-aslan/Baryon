@@ -297,6 +297,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SubsteppingTest.cpp")
     add_test(NAME SubsteppingTest COMMAND SubsteppingTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SpeculativeContactsTest.cpp")
+    add_executable(SpeculativeContactsTest tests/SpeculativeContactsTest.cpp)
+    target_link_libraries(SpeculativeContactsTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME SpeculativeContactsTest COMMAND SpeculativeContactsTest)
+endif()
+
 
 
 
