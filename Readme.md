@@ -162,6 +162,38 @@ Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimar
 
 ---
 
+## 🎨 Görsel Hata Ayıklayıcı ve Teşhis Aracı (Visual Debugger - Faz 6)
+
+`BaryonVisualDebugger` (OpenGL 3.3 Core & Dear ImGui), motorun tüm fiziksel kabiliyetlerini, kısıtlarını ve çözücü kalitesini gerçek zamanlı interaktif olarak inceleme ve görselleştirme imkânı sunar:
+
+- **Genişletilmiş İnteraktif Test Sahneleri (Faz 6.1):**
+  - **Bileşik Şekiller (Compound Shapes):** L-şekli, T-şekli ve çift ağırlıklı dambıl geometrileri.
+  - **Yeni Geometriler:** Silindir (`CylinderShape`), Koni (`ConeShape`) ve Yükseklik Haritası (`HeightfieldShape`).
+  - **Gelişmiş Eklem Düzenekleri:** Süspansiyonlu tekerlekli araç, ragdoll kolu (`ConeTwistConstraint`), doğrusal asansör (`PrismaticConstraint`), sönümlü yay köprüsü (`SpringConstraint`), menteşe motoru (`RevoluteConstraint` Motor & Limits) ve kırılan asma köprü (`JointBreakage`).
+  - **Çözücü Kalite Sahneleri:** 20 katlı kule & 30 halkalı zincir yumuşak alt adımlama (`Substepping`), 500 m/s mermi duvar testi (`Speculative CCD`), serbest uzay T-kolu tersinimi (`Dzhanibekov Effect`), yerçekimi ölçeği ve sıfır sönümleme (`GravityScale & Zero-G`).
+  - **Yüksek Ölçekli Paralel Stres Sahnesi:** 10,000 cisimli çok adalı interaktif test ortamı (`Multithreaded Stress`).
+- **Gelişmiş Çizim Katmanları (Faz 6.2):**
+  - Geometri tel kafesleri (Box, Sphere, Capsule, Cylinder, Cone, Heightfield, StaticMesh).
+  - Temas noktaları, penetrasyon derinlikleri ve reaksiyon normalleri.
+  - Hız vektörleri (Velocity vectors).
+  - AABB (Eksen Hizalı Sınır Kutusu) tel kafesleri (`mShowAABBs`).
+  - Kütle merkezi (Center of Mass) 3 eksenli yön işaretçileri (`mShowCenterOfMass`).
+  - Eşzamanlı eklem bağlantı hatları (`mShowJoints`).
+  - Uykudaki cisimleri sakin mavi renkle vurgulama (`mHighlightSleeping`).
+- **Simülasyon ve Deterministik Snapshot Kontrolleri (Faz 6.3):**
+  - Duraklat / Devam Et, Tek Fizik Adımı İlerletme (Step), Hız Çarpanı (0.1x – 4.0x).
+  - Deterministik Snapshot Kaydet ve İstenen Anda Geri Yükle (Save / Restore Snapshot).
+- **Canlı Metrik Paneli ve Yuvarlanan Çizgi Grafikler (Faz 6.5):**
+  - Adım süresi (ms/adım), toplam temas sayısı, kinetik enerji ($E_k$), potansiyel enerji ($E_p$) ve maksimum penetrasyon derinliği.
+  - Canlı 120 adımlık yuvarlanan performans ve enerji grafikleri (`ImGui::PlotLines`).
+- **Entegre Otomatik Test Doğrulama Paneli (Faz 6.6):**
+  - Headless harness senaryolarını tek tıkla arayüz içinden koşturma (`runHarnessVerification()`).
+  - Referans baseline değerleri ile anlık ölçümleri karşılaştıran yeşil/kırmızı durum tablosu.
+- **Kayıt ve Tekrar Oynatma (Playback & DumpReader - Faz 6.7):**
+  - Baryon ikili kayıt dosyalarını (`.byrn`, `DumpFormat.hpp`) okuma, kare kare ileri/geri sarma ve anomali analizi.
+
+---
+
 ## 📁 Dizin Yapısı
 
 - **`baryon/`**: Sıfır dış bağımlılığa sahip saf C++23 fizik motoru çekirdeği.

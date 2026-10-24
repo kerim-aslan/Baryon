@@ -11,4 +11,5 @@
 *.zip
 \docs
 imgui.ini
+out.csv
 \Asset

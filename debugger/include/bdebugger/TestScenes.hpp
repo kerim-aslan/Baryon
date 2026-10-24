@@ -31,6 +31,11 @@ enum class SceneType {
     ConeTwistRagdoll,
     JointBreakage,
     DOFLock,
+    SubsteppingTowerChain,
+    SpeculativeCCD,
+    DzhanibekovEffect,
+    GravityScaleZeroG,
+    MultithreadedStress,
     Sandbox,
     Count
 };
@@ -56,6 +61,11 @@ private:
     static void setupConeTwistRagdoll(Simulator& sim);
     static void setupJointBreakage(Simulator& sim);
     static void setupDOFLock(Simulator& sim);
+    static void setupSubsteppingTowerChain(Simulator& sim);
+    static void setupSpeculativeCCD(Simulator& sim);
+    static void setupDzhanibekovEffect(Simulator& sim);
+    static void setupGravityScaleZeroG(Simulator& sim);
+    static void setupMultithreadedStress(Simulator& sim);
     static void setupSandbox(Simulator& sim);
     static void setupTriggerSensors(Simulator& sim);
     static void setupCollisionFiltering(Simulator& sim);

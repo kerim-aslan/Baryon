@@ -78,12 +78,35 @@ private:
     // Active Scene
     SceneType mCurrentScene{SceneType::TriggerSensors};
 
-    // Visualization Options
+    // Visualization Options (Faz 6.2)
     bool mShowGrid{true};
     bool mShowAxes{true};
     bool mShowShapes{true};
     bool mShowContacts{true};
     bool mShowVelocities{true};
+    bool mShowAABBs{false};
+    bool mHighlightSleeping{true};
+    bool mShowJoints{true};
+    bool mShowCenterOfMass{false};
+
+    // Snapshot State (Faz 6.3)
+    Core::Snapshot mSavedSnapshot;
+    bool mHasSavedSnapshot{false};
+
+    // Live Metrics History (Faz 6.5)
+    float mStepTimeHistory[120]{0.0f};
+    int mStepTimeHistoryOffset{0};
+    float mEnergyHistory[120]{0.0f};
+
+    // Test Runner State (Faz 6.6)
+    bool mShowTestRunnerWindow{false};
+    struct TestStatusItem {
+        std::string name;
+        bool passed;
+        std::string expected;
+        std::string measured;
+    };
+    std::vector<TestStatusItem> mHarnessTestResults;
 
     // Live Raycast state
     float mRaycastAngle{0.0f};
@@ -95,6 +118,9 @@ private:
 
     // Selected Entity for inspection
     uint32_t mSelectedEntityId{0xFFFFFFFF};
+
+    void runHarnessVerification();
+    void renderTestRunnerPanel();
 
 public:
     DebuggerApp();

@@ -27,9 +27,13 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::PrismaticElevator: return "14. Prizmatik Kayar Eklem & Asansor (Prismatic Slider)";
         case SceneType::SpringSuspension: return "15. Yayli Suspansiyon & Sonumlu Salinim (Spring Joint)";
         case SceneType::ConeTwistRagdoll: return "16. Koni-Burulma Ragdoll Eklemi (Cone-Twist Ragdoll Joint)";
-        case SceneType::JointBreakage: return "17. Eklem Kirilmasi & Kopan Asma Kopru (Joint Breakage / Collapsing Bridge)";
         case SceneType::DOFLock: return "18. Eksen Kilitleme & 2B Fizik (DOF Lock / LockAxis)";
-        case SceneType::Sandbox: return "19. Serbest Fizik Test Alani (Sandbox)";
+        case SceneType::SubsteppingTowerChain: return "19. Alt Adimlama (Substepping / Soft-Step: 20 Katli Kule & 30 Halka Zincir)";
+        case SceneType::SpeculativeCCD: return "20. Spekulatif Kontak (Speculative CCD: 500 m/s Mermi vs Ince Duvar)";
+        case SceneType::DzhanibekovEffect: return "21. Jiroskopik Tork & Dzhanibekov Etkisi (T-Kolu Taklasi)";
+        case SceneType::GravityScaleZeroG: return "22. Bireysel Yercekimi Carpani (gravityScale: Sifir-G Ucus & Korunum)";
+        case SceneType::MultithreadedStress: return "23. Cok Is Parcacikli Ada Cozumu (Multithreaded Island Stress)";
+        case SceneType::Sandbox: return "24. Serbest Fizik Test Alani (Sandbox)";
         default: return "Bilinmeyen Sahne";
     }
 }
@@ -70,10 +74,18 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "Hooke Yasasi ve sonumlu harmonik salinici (Damped Harmonic Oscillator) modelini test eder. Sira sira farkli sonumleme oranlarina (sonumsuz zeta=0, kritik sonumlu zeta=1, zayif sonumlu zeta=0.15) sahip yayli kutleler ve 4 tekerlekli araba suspansiyon sasisi yer alir.";
         case SceneType::ConeTwistRagdoll:
             return "Anatomik omuz ve ragdoll mafsalini test eder. 3B uzayda koni salinim limiti (swing cone) ve eksenel burulma limiti (axial twist) ile sabit omuza bagli serbest sallanan ve burulan insan kolu modelidir.";
-        case SceneType::JointBreakage:
-            return "Asiri yuk veya reaksiyon kuvveti altinda eklemlerin kirilmasini (Joint Breakage) gosterir. Ortadaki parcalara dusen agir yuk karsisinda sabit ve donel eklemler esik kuvvetini (breakForce) asarak kopar ve kopru ikiye ayrilarak parcalanir.";
         case SceneType::DOFLock:
             return "Cisimlerin serbestlik derecelerini (DoF) kilitler. 1) Z ekseni ve pitch/roll rotasyonu kilitli 2B fizik modu (Lock2D), 2) Eğimde dahi dikligini koruyan devrilmeyen karakter (AngularX|Z lock), 3) Sadece dikey kayan 1-DoF asansor platformu yer alir.";
+        case SceneType::SubsteppingTowerChain:
+            return "Adim ici alt adimlama (Substepping / Soft-step: 4 alt adim) teknolojisini test eder. 20 katli yuksek kutu kulesi ve tavandan sarkan 30 halkali eklem zinciri, dusuk cozucu iterasyonunda bile titremesiz (jitter-free) ve kaya gibi kararlidir.";
+        case SceneType::SpeculativeCCD:
+            return "TOI kok bulma gerektirmeyen Spekulatif Kontak (Speculative Contacts) yaklasimini test eder. 0.1m inceligindeki statik duvara 500 m/s ses ustu hizla carpan mermi kure, yuzeyde kusursuz sekilde frenlenerek tunellemeden durur.";
+        case SceneType::DzhanibekovEffect:
+            return "Euler donme hareket denklemleri ve Runge-Kutta (RK4) jiroskopik tork cozucusunu test eder. Serbest uzayda ara eylemsizlik ekseni etrafinda (I1 < I2 < I3) hizla dondurulen T-kolu bilesik govdesi, periyodik olarak 180 derece takla atar (Dzhanibekov etkisi).";
+        case SceneType::GravityScaleZeroG:
+            return "Cisim basina yercekimi carpanini (gravityScale) ve sifir-sonum enerji korunumunu gosterir. gravityScale=0 olan kutu sifir-G'de asili kalir, gravityScale=-1 olan balon yukari ucar, sonumsuz elastik top yercekimi altinda sonsuza dek ayni yukseklige seker.";
+        case SceneType::MultithreadedStress:
+            return "std::jthread havuzu ile paralel ada cozumunu test eder. Coklu bagimsiz kutu yiginlari ve sarkaç adalarindan olusan stres sahnesi, cok cekirdekli islemcide deterministik olarak eszamanli cozulur.";
         case SceneType::Sandbox:
             return "Duvarlarla cevrili serbest fizik test arenasi.";
         default: return "";
@@ -111,6 +123,11 @@ void TestScenes::loadScene(Simulator& sim, SceneType type) {
         case SceneType::ConeTwistRagdoll: setupConeTwistRagdoll(sim); break;
         case SceneType::JointBreakage: setupJointBreakage(sim); break;
         case SceneType::DOFLock: setupDOFLock(sim); break;
+        case SceneType::SubsteppingTowerChain: setupSubsteppingTowerChain(sim); break;
+        case SceneType::SpeculativeCCD: setupSpeculativeCCD(sim); break;
+        case SceneType::DzhanibekovEffect: setupDzhanibekovEffect(sim); break;
+        case SceneType::GravityScaleZeroG: setupGravityScaleZeroG(sim); break;
+        case SceneType::MultithreadedStress: setupMultithreadedStress(sim); break;
         case SceneType::Sandbox: setupSandbox(sim); break;
         case SceneType::Count: break;
     }
@@ -972,6 +989,158 @@ void TestScenes::setupDOFLock(Simulator& sim) {
     Body weight = sim.createBody(weightPose, collision::CollisionShape{collision::SphereShape(0.5f)});
     weight.setBodyType(Core::BodyType::Dynamic);
     (void)weight.setMass(5.0f);
+}
+
+void TestScenes::setupSubsteppingTowerChain(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+    sim.setSubstepping(true, 4);
+
+    // Statik zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(30.0f, 0.5f, 30.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. SOL ALAN: 20 Katlı Yüksek Kutu Kulesi
+    const float boxH = 0.4f;
+    for (int level = 0; level < 20; ++level) {
+        float y = 0.4f + static_cast<float>(level) * (boxH * 2.0f);
+        Pose p1(Vector3(-4.3f, y, 0.0f));
+        Pose p2(Vector3(-3.7f, y, 0.0f));
+        Body b1 = sim.createBody(p1, collision::CollisionShape{collision::BoxShape(Vector3(0.25f, boxH, 0.4f))});
+        Body b2 = sim.createBody(p2, collision::CollisionShape{collision::BoxShape(Vector3(0.25f, boxH, 0.4f))});
+        b1.setBodyType(Core::BodyType::Dynamic);
+        b2.setBodyType(Core::BodyType::Dynamic);
+    }
+
+    // 2. SAĞ ALAN: 30 Halkalı Uzun Eklem Zinciri
+    Pose anchorPose(Vector3(4.0f, 18.0f, 0.0f));
+    Body prevLink = sim.createBody(anchorPose, collision::CollisionShape{collision::SphereShape(0.25f)});
+    prevLink.setBodyType(Core::BodyType::Static);
+
+    const int linkCount = 30;
+    const float linkSpacing = 0.5f;
+    for (int i = 0; i < linkCount; ++i) {
+        float y = 18.0f - static_cast<float>(i + 1) * linkSpacing;
+        Pose linkPose(Vector3(4.0f + (i == linkCount - 1 ? 1.0f : 0.0f), y, 0.0f));
+        Body link = sim.createBody(linkPose, collision::CollisionShape{collision::SphereShape(0.18f)});
+        link.setBodyType(Core::BodyType::Dynamic);
+        (void)link.setMass(0.5f);
+
+        sim.createDistanceConstraint(prevLink, link, linkSpacing);
+        prevLink = link;
+    }
+}
+
+void TestScenes::setupSpeculativeCCD(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, 0.0f, 0.0f)); // Düz uçuş için sıfır yerçekimi
+    sim.setSpeculativeContacts(true, 30.0f);
+
+    // Statik ince duvar (X = 10.0, Kalınlık = 0.1m)
+    Pose wallPose(Vector3(10.0f, 2.0f, 0.0f));
+    Body wall = sim.createBody(wallPose, collision::CollisionShape{collision::BoxShape(Vector3(0.05f, 5.0f, 6.0f))});
+    wall.setBodyType(Core::BodyType::Static);
+
+    // 1. Z=-2.0 Hattı: Spekülatif CCD Aktif Yüksek Hızlı Mermi (500 m/s)
+    Pose bulletPose1(Vector3(-10.0f, 2.0f, -2.0f));
+    Body bullet1 = sim.createBody(bulletPose1, collision::CollisionShape{collision::SphereShape(0.25f)});
+    bullet1.setBodyType(Core::BodyType::Dynamic);
+    (void)bullet1.setMass(2.0f);
+    (void)bullet1.setSpeculativeContacts(true);
+    (void)bullet1.setLinearVelocity(Vector3(500.0f, 0.0f, 0.0f));
+
+    // 2. Z=+2.0 Hattı: Normal CCD Mermisi (150 m/s)
+    Pose bulletPose2(Vector3(-10.0f, 2.0f, 2.0f));
+    Body bullet2 = sim.createBody(bulletPose2, collision::CollisionShape{collision::SphereShape(0.25f)});
+    bullet2.setBodyType(Core::BodyType::Dynamic);
+    (void)bullet2.setMass(2.0f);
+    (void)bullet2.setCCD(true);
+    (void)bullet2.setLinearVelocity(Vector3(150.0f, 0.0f, 0.0f));
+}
+
+void TestScenes::setupDzhanibekovEffect(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, 0.0f, 0.0f)); // Sıfır yerçekimi (serbest uzay)
+    sim.setGyroscopicTorque(true);
+
+    // T-kolu Bilesik Sekli (CompoundShape)
+    collision::CompoundShape tHandleShape;
+    // Yatay üst çubuk (X yönünde uzun)
+    tHandleShape.children.push_back(collision::CompoundChild(
+        collision::CollisionShape{collision::BoxShape(Vector3(1.2f, 0.15f, 0.15f))},
+        Pose(Vector3(0.0f, 0.8f, 0.0f))
+    ));
+    // Dikey gövde çubuğu (Y yönünde)
+    tHandleShape.children.push_back(collision::CompoundChild(
+        collision::CollisionShape{collision::BoxShape(Vector3(0.15f, 0.7f, 0.15f))},
+        Pose(Vector3(0.0f, 0.0f, 0.0f))
+    ));
+
+    Pose tPose(Vector3(0.0f, 3.0f, 0.0f));
+    Body tBody = sim.createBody(tPose, collision::CollisionShape{tHandleShape});
+    tBody.setBodyType(Core::BodyType::Dynamic);
+    (void)tBody.setMass(3.5f);
+    (void)tBody.setLinearDamping(0.0f);
+    (void)tBody.setAngularDamping(0.0f);
+    (void)tBody.setGyroscopicTorque(true);
+
+    // Ara eylemsizlik ekseni (Y) etrafında yüksek hızda dönüş + X ekseninde küçük pertürbasyon
+    (void)tBody.setAngularVelocity(Vector3(0.02f, 20.0f, 0.0f));
+}
+
+void TestScenes::setupGravityScaleZeroG(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // Statik zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(25.0f, 0.5f, 25.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 1. SOL: gravityScale = 0.0f (Sıfır Yerçekimi Serbest Uçuş)
+    Pose floatPose(Vector3(-5.0f, 4.0f, 0.0f));
+    Body floatBody = sim.createBody(floatPose, collision::CollisionShape{collision::BoxShape(Vector3(0.5f, 0.5f, 0.5f))});
+    floatBody.setBodyType(Core::BodyType::Dynamic);
+    (void)floatBody.setGravityScale(0.0f);
+    (void)floatBody.setLinearDamping(0.0f);
+
+    // 2. ORTA: gravityScale = -0.5f (Ters Yerçekimi - Yukarı Yükselen Balon)
+    Pose balloonPose(Vector3(0.0f, 1.0f, 0.0f));
+    Body balloonBody = sim.createBody(balloonPose, collision::CollisionShape{collision::SphereShape(0.6f)});
+    balloonBody.setBodyType(Core::BodyType::Dynamic);
+    (void)balloonBody.setGravityScale(-0.5f);
+
+    // 3. SAĞ: damping = 0.0f, restitution = 1.0f (Sonsuz Enerji Korunumu Zıplayışı)
+    Pose bouncePose(Vector3(5.0f, 5.0f, 0.0f));
+    Body bounceBody = sim.createBody(bouncePose, collision::CollisionShape{collision::SphereShape(0.5f)});
+    bounceBody.setBodyType(Core::BodyType::Dynamic);
+    (void)bounceBody.setMaterial(0.0f, 1.0f);
+    (void)bounceBody.setLinearDamping(0.0f);
+    (void)bounceBody.setAngularDamping(0.0f);
+}
+
+void TestScenes::setupMultithreadedStress(Simulator& sim) {
+    sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+
+    // 8 iş parçacıklı havuz
+    SimulationSettings settings = sim.getSettings();
+    settings.threadCount = 8;
+    sim.setSettings(settings);
+
+    // Statik zemin
+    Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+    Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(50.0f, 0.5f, 50.0f))});
+    ground.setBodyType(Core::BodyType::Static);
+
+    // 12 ayrı bağımsız ada kümesi (her biri ayrı bir yığın)
+    for (int cluster = 0; cluster < 12; ++cluster) {
+        float cx = (static_cast<float>(cluster % 4) - 1.5f) * 6.0f;
+        float cz = (static_cast<float>(cluster / 4) - 1.0f) * 6.0f;
+
+        for (int y = 0; y < 8; ++y) {
+            Pose boxPose(Vector3(cx, 0.5f + static_cast<float>(y) * 0.8f, cz));
+            Body box = sim.createBody(boxPose, collision::CollisionShape{collision::BoxShape(Vector3(0.35f, 0.35f, 0.35f))});
+            box.setBodyType(Core::BodyType::Dynamic);
+            (void)box.setMass(1.0f);
+        }
+    }
 }
 
 } // namespace Baryon::Debugger

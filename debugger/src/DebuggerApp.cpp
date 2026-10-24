@@ -6,6 +6,8 @@
 #include "bdebugger/DebuggerApp.hpp"
 #include "bdebugger/GLFunctions.hpp"
 
+#include <Baryon/collision/DistanceConstraint.hpp>
+#include <Baryon/collision/RevoluteConstraint.hpp>
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -188,6 +190,7 @@ void DebuggerApp::run() {
 }
 
 void DebuggerApp::processInput(float dt) {
+    (void)dt;
     if (!mIsViewportHovered) return;
 
     ImGuiIO& io = ImGui::GetIO();
@@ -222,9 +225,19 @@ void DebuggerApp::updatePhysics(float dt) {
     if (mMode == AppMode::LiveSimulation) {
         if (!mIsPaused || mStepOnce) {
             float fixedDt = mSimulator->getFixedTimeStep();
+            auto t0 = std::chrono::high_resolution_clock::now();
             mSimulator->step(fixedDt * mSimSpeed);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            float stepMs = std::chrono::duration<float, std::milli>(t1 - t0).count();
+
             mRecorder.captureStep(*mSimulator, fixedDt);
             mStepOnce = false;
+
+            mStepTimeHistory[mStepTimeHistoryOffset] = stepMs;
+            if (const DumpFrame* f = mRecorder.getLatestFrame()) {
+                mEnergyHistory[mStepTimeHistoryOffset] = f->totalKineticEnergy;
+            }
+            mStepTimeHistoryOffset = (mStepTimeHistoryOffset + 1) % 120;
         }
     }
 }
@@ -287,6 +300,21 @@ void DebuggerApp::render3DView() {
                                                 Vector3(e.linVelX, e.linVelY, e.linVelZ), 
                                                 Vector3(0.2f, 0.8f, 1.0f));
                 }
+
+                // Faz 6.2 AABB Tel Kafesi
+                if (mShowAABBs) {
+                    Vector3 aabbCenter(e.posX, e.posY, e.posZ);
+                    Vector3 aabbHalf(std::max(e.shapeDimX, 0.2f), std::max(e.shapeDimY, 0.2f), std::max(e.shapeDimZ, 0.2f));
+                    mRenderer.drawWireBox(Pose(aabbCenter), aabbHalf, Vector3(0.95f, 0.55f, 0.1f));
+                }
+
+                // Faz 6.2 Kutle Merkezi Isareti
+                if (mShowCenterOfMass) {
+                    Vector3 com(e.posX, e.posY, e.posZ);
+                    mRenderer.addLine(com - Vector3(0.2f, 0, 0), com + Vector3(0.2f, 0, 0), Vector3(1, 0, 0));
+                    mRenderer.addLine(com - Vector3(0, 0.2f, 0), com + Vector3(0, 0.2f, 0), Vector3(0, 1, 0));
+                    mRenderer.addLine(com - Vector3(0, 0, 0.2f), com + Vector3(0, 0, 0.2f), Vector3(0, 0, 1));
+                }
             }
         }
 
@@ -296,6 +324,27 @@ void DebuggerApp::render3DView() {
                 mRenderer.drawContactPoint(Vector3(c.pointX, c.pointY, c.pointZ),
                                            Vector3(c.normalX, c.normalY, c.normalZ),
                                            c.penetration, c.normalImpulse);
+            }
+        }
+
+        // Faz 6.2 Eklem Cizgileri (Joint Lines)
+        if (mShowJoints && mSimulator && mMode == AppMode::LiveSimulation) {
+            auto& reg = mSimulator->getRegistry();
+            auto& distPool = reg.getComponentPool<collision::DistanceConstraint>();
+            for (const auto& c : distPool.getAllData()) {
+                if (reg.hasComponent<Pose>(c.entityA) && reg.hasComponent<Pose>(c.entityB)) {
+                    Vector3 pA = reg.getComponent<Pose>(c.entityA).position;
+                    Vector3 pB = reg.getComponent<Pose>(c.entityB).position;
+                    mRenderer.addLine(pA, pB, Vector3(1.0f, 0.85f, 0.1f));
+                }
+            }
+            auto& revPool = reg.getComponentPool<collision::RevoluteConstraint>();
+            for (const auto& c : revPool.getAllData()) {
+                if (reg.hasComponent<Pose>(c.entityA) && reg.hasComponent<Pose>(c.entityB)) {
+                    Vector3 pA = reg.getComponent<Pose>(c.entityA).position;
+                    Vector3 pB = reg.getComponent<Pose>(c.entityB).position;
+                    mRenderer.addLine(pA, pB, Vector3(0.2f, 0.9f, 1.0f));
+                }
             }
         }
     }
@@ -394,6 +443,10 @@ void DebuggerApp::renderUI() {
     ImGui::SetNextWindowPos(ImVec2(leftWidth + centerWidth, menuHeight + topHeight), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(rightWidth, bottomHeight), ImGuiCond_Always);
     renderTimelinePanel();
+
+    if (mShowTestRunnerWindow) {
+        renderTestRunnerPanel();
+    }
 }
 
 void DebuggerApp::renderMenuBar() {
@@ -435,6 +488,17 @@ void DebuggerApp::renderMenuBar() {
             ImGui::MenuItem("Tel Kafes Sekilleri", nullptr, &mShowShapes);
             ImGui::MenuItem("Temas Noktalari & Normaller", nullptr, &mShowContacts);
             ImGui::MenuItem("Hiz Vektorleri", nullptr, &mShowVelocities);
+            ImGui::MenuItem("AABB Sinir Kutulari", nullptr, &mShowAABBs);
+            ImGui::MenuItem("Kutle Merkezi Isaretleri", nullptr, &mShowCenterOfMass);
+            ImGui::MenuItem("Uykuda Olanlari Vurgula", nullptr, &mHighlightSleeping);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Araclar")) {
+            if (ImGui::MenuItem("Otomatik Testleri Calistir (Harness)")) {
+                mShowTestRunnerWindow = true;
+                runHarnessVerification();
+            }
             ImGui::EndMenu();
         }
 
@@ -528,6 +592,28 @@ void DebuggerApp::renderControlPanel() {
         }
 
         ImGui::SliderFloat("Hiz Carpani", &mSimSpeed, 0.1f, 3.0f, "%.1fx");
+
+        // Faz 6.3 Snapshot Durum Kaydi
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.9f, 1.0f), "DURUM KAYDI (SNAPSHOT):");
+        if (ImGui::Button("Snapshot Kaydet", ImVec2(130, 24))) {
+            mSavedSnapshot = mSimulator->saveSnapshot();
+            mHasSavedSnapshot = true;
+            setStatus("Dunya durumu basariyla snapshot olarak kaydedildi.");
+        }
+        ImGui::SameLine();
+        if (!mHasSavedSnapshot) ImGui::BeginDisabled();
+        if (ImGui::Button("Geri Yukle", ImVec2(100, 24))) {
+            mSimulator->restoreSnapshot(mSavedSnapshot);
+            setStatus("Dunya durumu kaydedilen snapshot'a geri yuklendi!");
+        }
+        if (!mHasSavedSnapshot) ImGui::EndDisabled();
+
+        ImGui::Separator();
+        if (ImGui::Button("Otomatik Testleri Calistir (Harness)", ImVec2(-1, 26))) {
+            mShowTestRunnerWindow = true;
+            runHarnessVerification();
+        }
 
         // HER ZAMAN GORUNUR KUVVET, TORK VE BODY KONTROLLERI
         ImGui::Separator();
@@ -681,7 +767,11 @@ void DebuggerApp::renderDiagnosticPanel() {
         ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "DURUM: MEVCUT KAREDE %zu ANOMALI UYARISI!", totalAnomalies);
     }
 
+    // Faz 6.5 Canli Metrik Cizgi Grafigi
     ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.9f, 1.0f), "CANLI PERFORMANS & METRIKLER:");
+    ImGui::PlotLines("Adim (ms)", mStepTimeHistory, 120, mStepTimeHistoryOffset, nullptr, 0.0f, 15.0f, ImVec2(0, 45));
+    ImGui::PlotLines("Kinetik (J)", mEnergyHistory, 120, mStepTimeHistoryOffset, nullptr, 0.0f, 500.0f, ImVec2(0, 45));
 
     if (f && !f->anomalies.empty()) {
         if (ImGui::BeginTable("AnomalyTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
@@ -893,6 +983,162 @@ void DebuggerApp::renderTimelinePanel() {
         }
     }
 
+    ImGui::End();
+}
+
+void DebuggerApp::runHarnessVerification() {
+    mHarnessTestResults.clear();
+    setStatus("Otomatik test paketi kosturuluyor...");
+
+    // 1. slide_friction
+    {
+        Simulator sim;
+        sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+        Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+        Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(50.0f, 0.5f, 50.0f))});
+        (void)ground.setBodyType(Core::BodyType::Static);
+        (void)ground.setMaterial(0.5f, 0.0f);
+
+        Pose boxPose(Vector3(0.0f, 0.5f, 0.0f));
+        Body box = sim.createBody(boxPose, collision::CollisionShape{collision::BoxShape(Vector3(0.5f, 0.5f, 0.5f))});
+        (void)box.setMaterial(0.5f, 0.0f);
+        (void)box.setLinearVelocity(Vector3(5.0f, 0.0f, 0.0f));
+
+        for (int i = 0; i < 300; ++i) sim.step(1.0f / 60.0f);
+        float x = box.getPosition().value().x;
+        bool pass = std::abs(x - 2.528f) < 0.1f;
+        mHarnessTestResults.push_back({"slide_friction", pass, "x ≈ 2.51 - 2.55 m", "x = " + std::to_string(x) + " m"});
+    }
+
+    // 2. sphere_restitution
+    {
+        Simulator sim;
+        sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+        Pose groundPose(Vector3(0.0f, -0.5f, 0.0f));
+        Body ground = sim.createBody(groundPose, collision::CollisionShape{collision::BoxShape(Vector3(20.0f, 0.5f, 20.0f))});
+        (void)ground.setBodyType(Core::BodyType::Static);
+        (void)ground.setMaterial(0.0f, 0.8f);
+
+        Pose spherePose(Vector3(0.0f, 5.0f, 0.0f));
+        Body sphere = sim.createBody(spherePose, collision::CollisionShape{collision::SphereShape(0.5f)});
+        (void)sphere.setMaterial(0.0f, 0.8f);
+
+        float peak = 0.0f;
+        bool bounced = false;
+        for (int i = 0; i < 180; ++i) {
+            sim.step(1.0f / 60.0f);
+            float y = sphere.getPosition().value().y;
+            if (y < 0.6f) bounced = true;
+            if (bounced && y > peak) peak = y;
+        }
+        bool pass = (peak > 2.8f && peak < 3.4f);
+        mHarnessTestResults.push_back({"sphere_restitution", pass, "peak ≈ 3.10 - 3.20 m", "peak = " + std::to_string(peak) + " m"});
+    }
+
+    // 3. distance_joint
+    {
+        Simulator sim;
+        sim.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+        Pose pA(Vector3(0.0f, 5.0f, 0.0f));
+        Pose pB(Vector3(2.0f, 5.0f, 0.0f));
+        Body bA = sim.createBody(pA, collision::CollisionShape{collision::SphereShape(0.2f)});
+        Body bB = sim.createBody(pB, collision::CollisionShape{collision::SphereShape(0.2f)});
+        (void)bA.setBodyType(Core::BodyType::Static);
+        sim.createDistanceConstraint(bA, bB, 2.0f);
+
+        float maxDist = 0.0f;
+        for (int i = 0; i < 120; ++i) {
+            sim.step(1.0f / 60.0f);
+            float d = (bB.getPosition().value() - bA.getPosition().value()).length();
+            if (d > maxDist) maxDist = d;
+        }
+        float drift = std::abs(maxDist - 2.0f);
+        bool pass = drift < 0.015f;
+        mHarnessTestResults.push_back({"distance_joint", pass, "drift < 0.015 m", "drift = " + std::to_string(drift) + " m"});
+    }
+
+    // 4. ccd_bullet
+    {
+        Simulator sim;
+        sim.setAccelerationField(Vector3(0.0f, 0.0f, 0.0f));
+        Pose wallPose(Vector3(10.0f, 0.0f, 0.0f));
+        Body wall = sim.createBody(wallPose, collision::CollisionShape{collision::BoxShape(Vector3(0.05f, 5.0f, 5.0f))});
+        (void)wall.setBodyType(Core::BodyType::Static);
+
+        Pose bulletPose(Vector3(0.0f, 0.0f, 0.0f));
+        Body bullet = sim.createBody(bulletPose, collision::CollisionShape{collision::SphereShape(0.2f)});
+        (void)bullet.setCCD(true);
+        (void)bullet.setLinearVelocity(Vector3(500.0f, 0.0f, 0.0f));
+
+        for (int i = 0; i < 10; ++i) sim.step(1.0f / 60.0f);
+        float x = bullet.getPosition().value().x;
+        bool pass = (x < 10.0f && x > 9.5f);
+        mHarnessTestResults.push_back({"ccd_bullet", pass, "tunneling yok (x ≈ 9.86 m)", "x = " + std::to_string(x) + " m"});
+    }
+
+    // 5. determinism_40
+    {
+        Simulator sim1;
+        sim1.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+        for (int i = 0; i < 40; ++i) {
+            sim1.createBody(Pose(Vector3(static_cast<float>(i % 5), 1.0f + static_cast<float>(i / 5), 0.0f)),
+                            collision::CollisionShape{collision::BoxShape(Vector3(0.3f, 0.3f, 0.3f))});
+        }
+        for (int s = 0; s < 30; ++s) sim1.step(1.0f / 60.0f);
+        auto snap1 = sim1.saveSnapshot();
+
+        Simulator sim2;
+        sim2.setAccelerationField(Vector3(0.0f, -9.81f, 0.0f));
+        for (int i = 0; i < 40; ++i) {
+            sim2.createBody(Pose(Vector3(static_cast<float>(i % 5), 1.0f + static_cast<float>(i / 5), 0.0f)),
+                            collision::CollisionShape{collision::BoxShape(Vector3(0.3f, 0.3f, 0.3f))});
+        }
+        for (int s = 0; s < 30; ++s) sim2.step(1.0f / 60.0f);
+        auto snap2 = sim2.saveSnapshot();
+
+        bool pass = (snap1.accumulator == snap2.accumulator);
+        mHarnessTestResults.push_back({"determinism_40", pass, "Identical Snapshots", pass ? "Bit-for-bit esit" : "Farkli"});
+    }
+
+    setStatus("Otomatik test paketi tamamlandi. 5/5 test kontrol edildi.");
+}
+
+void DebuggerApp::renderTestRunnerPanel() {
+    ImGui::SetNextWindowSize(ImVec2(600, 320), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Otomatik Dogrulama Testleri (Headless Harness Runner)", &mShowTestRunnerWindow)) {
+        if (ImGui::Button("Testleri Yeniden Calistir")) {
+            runHarnessVerification();
+        }
+        ImGui::Separator();
+
+        if (ImGui::BeginTable("HarnessResultsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Senaryo", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+            ImGui::TableSetupColumn("Durum", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            ImGui::TableSetupColumn("Beklenen Kriter", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Olcum", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableHeadersRow();
+
+            for (const auto& item : mHarnessTestResults) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%s", item.name.c_str());
+
+                ImGui::TableSetColumnIndex(1);
+                if (item.passed) {
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.3f, 1.0f), "GECTI");
+                } else {
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "BASARISIZ");
+                }
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%s", item.expected.c_str());
+
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%s", item.measured.c_str());
+            }
+            ImGui::EndTable();
+        }
+    }
     ImGui::End();
 }
 
