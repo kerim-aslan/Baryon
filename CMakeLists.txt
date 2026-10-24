@@ -327,6 +327,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SimdSolverTest.cpp")
     add_test(NAME SimdSolverTest COMMAND SimdSolverTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/BenchmarkTest.cpp")
+    add_executable(BenchmarkTest tests/BenchmarkTest.cpp)
+    target_link_libraries(BenchmarkTest PRIVATE Baryon::BaryonStatic)
+    target_include_directories(BenchmarkTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    add_test(NAME BenchmarkTest COMMAND BenchmarkTest)
+    set_tests_properties(BenchmarkTest PROPERTIES LABELS "benchmark")
+endif()
+
 
 
 

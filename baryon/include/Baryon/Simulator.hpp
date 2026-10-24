@@ -801,6 +801,17 @@ public:
     }
 
     /**
+     * @brief Simülasyondaki anlık toplam aktif temas noktası sayısını döndürür.
+     */
+    [[nodiscard]] size_t getActiveContactCount() const {
+        size_t count = 0;
+        for (const auto& [key, manifold] : mCollisionSystem.getManifolds()) {
+            count += manifold.contactCount;
+        }
+        return count;
+    }
+
+    /**
      * @brief Tüm varlıkların AABB sınırlarını konsola yazdırır.
      * @details Çarpışma algılayıcı ve fizik motorunun görsellerle boyut uyumunu 
      *          doğrulamak için (Hata ayıklama amaçlı) kullanılır.
