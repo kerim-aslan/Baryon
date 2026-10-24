@@ -365,8 +365,8 @@ void DebuggerApp::render3DView() {
     // Canli Hacim Sorgulama (Overlap Showcase)
     if (mCurrentScene == SceneType::OverlapQueries && mMode == AppMode::LiveSimulation) {
         float rad = mRaycastAngle * 3.14159265f / 180.0f;
-        Vector3 probePos(std::sin(rad) * 6.0f, 1.5f, std::cos(rad) * 6.0f);
-        float probeRadius = 1.8f;
+        Vector3 probePos(std::sin(rad) * 6.0f, 1.8f, std::cos(rad) * 6.0f);
+        float probeRadius = 1.3f;
         auto overlapped = mSimulator->overlapSphere(probePos, probeRadius);
         Vector3 probeColor = overlapped.empty() ? Vector3(0.2f, 0.8f, 1.0f) : Vector3(1.0f, 0.2f, 0.3f);
         mRenderer.drawWireSphere(Pose(probePos), probeRadius, probeColor);
