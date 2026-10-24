@@ -20,7 +20,8 @@
       "description": "Kure, e=0.8, 5 m'den duser, 2. tepe (1. sicrama apeksi)",
       "metric": "peak_1",
       "expected_value": 3.11028,
-      "ideal_value": 3.4,
+      "ideal_value": 3.20,
+      "note": "Analitik e^2*H = 3.20m (damping=0). 3.11m olmasinin nedeni varsayilan 0.05 linearDamping hava direncidir.",
       "tolerance_pct": 2.0
     },
     "distance_joint": {
