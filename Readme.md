@@ -127,6 +127,7 @@ int main() {
 
 Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimarisiyle aşağıdaki eklem tiplerini destekler:
 
+- **Mesafe ve Halat Eklemi (`DistanceConstraint`):** İki cisim arasındaki mesafeyi belirli bir hedef mesafede (`targetDistance`) tutar. Split-impulse tabanlı doğrudan pozisyon projeksiyonu (Faz 3.10) ile yerçekimi ve dinamik salınımlar altında oluşan sayısal sapma (drift) 13 mm'den 0-1.6 mm aralığına düşürülmüştür (hedef < 3 mm kriterini tam sağlar).
 - **Sabit Kaynak Eklemi (`FixedConstraint`):** 6 serbestlik derecesini (3 ötelenme + 3 dönme) kilitler, kaynaklanmış katı cisimler oluşturur.
 - **Küre / Bilyeli Mafsal (`BallSocketConstraint`):** 3 ötelenme serbestliğini kilitler, 3 açısal serbestliği serbest bırakır (küresel sarkaç, jiroskopik mafsal).
 - **Menteşe / Döner Eklem (`RevoluteConstraint`):** Tek bir eksen etrafında dönmeye (1-DOF) izin verir, 3 ötelenme ve 2 eksen dışı eğilmeyi kilitler; açısal sınırlar (`setRevoluteLimits`), açısal motor ve tork tavanı (`setRevoluteMotor`) destekler.

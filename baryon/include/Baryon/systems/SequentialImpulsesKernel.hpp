@@ -106,6 +106,7 @@ private:
     void solveConstraintVelocity(collision::ConeTwistConstraint& constraint, float deltaTime);
     void solveConstraintPosition(collision::ConeTwistConstraint& constraint, float deltaTime);
 
+    void solveDistanceConstraintPosition(collision::DistanceConstraint& constraint, float deltaTime);
     void resolveSpringConstraint(collision::SpringConstraint& constraint, float deltaTime);
     void solveSpringConstraintPosition(collision::SpringConstraint& constraint, float deltaTime);
     void resolveConeTwistConstraint(collision::ConeTwistConstraint& constraint, float deltaTime);

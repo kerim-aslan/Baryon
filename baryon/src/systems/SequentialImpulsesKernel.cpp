@@ -122,8 +122,7 @@ void SequentialImpulsesKernel::solveConstraintVelocity(
 
 void SequentialImpulsesKernel::solveConstraintPosition(
     collision::DistanceConstraint &constraint, float deltaTime) {
-  (void)constraint;
-  (void)deltaTime;
+  solveDistanceConstraintPosition(constraint, deltaTime);
 }
 
 void SequentialImpulsesKernel::prepareConstraint(
@@ -1113,6 +1112,95 @@ void SequentialImpulsesKernel::resolveDistanceConstraint(
   motionA.angularVelocity += massA.inverseInertiaTensor * rA.cross(impulse);
   motionB.linearVelocity -= impulse * massB.inverseMass;
   motionB.angularVelocity -= massB.inverseInertiaTensor * rB.cross(impulse);
+}
+
+void SequentialImpulsesKernel::solveDistanceConstraintPosition(
+    collision::DistanceConstraint &constraint, float deltaTime) {
+  if (deltaTime <= 0.0f)
+    return;
+  if (!mRegistry.hasComponent<Pose>(constraint.entityA) ||
+      !mRegistry.hasComponent<Pose>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::Motion>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::Motion>(constraint.entityB))
+    return;
+  if (!mRegistry.hasComponent<Core::MassProps>(constraint.entityA) ||
+      !mRegistry.hasComponent<Core::MassProps>(constraint.entityB))
+    return;
+
+  auto &poseA = mRegistry.getComponent<Pose>(constraint.entityA);
+  auto &poseB = mRegistry.getComponent<Pose>(constraint.entityB);
+  auto &motionA = mRegistry.getComponent<Core::Motion>(constraint.entityA);
+  auto &motionB = mRegistry.getComponent<Core::Motion>(constraint.entityB);
+  const auto &massA = mRegistry.getComponent<Core::MassProps>(constraint.entityA);
+  const auto &massB = mRegistry.getComponent<Core::MassProps>(constraint.entityB);
+
+  Core::BodyType typeA = Core::BodyType::Dynamic;
+  Core::BodyType typeB = Core::BodyType::Dynamic;
+  uint8_t lockedAxesA = 0;
+  uint8_t lockedAxesB = 0;
+  if (mRegistry.hasComponent<Core::BodyState>(constraint.entityA)) {
+    const auto &stA = mRegistry.getComponent<Core::BodyState>(constraint.entityA);
+    typeA = stA.type;
+    lockedAxesA = stA.lockedAxes;
+  }
+  if (mRegistry.hasComponent<Core::BodyState>(constraint.entityB)) {
+    const auto &stB = mRegistry.getComponent<Core::BodyState>(constraint.entityB);
+    typeB = stB.type;
+    lockedAxesB = stB.lockedAxes;
+  }
+
+  const float invMassA = (typeA == Core::BodyType::Dynamic) ? massA.inverseMass : 0.0f;
+  const float invMassB = (typeB == Core::BodyType::Dynamic) ? massB.inverseMass : 0.0f;
+  const Vector3 invMassVecA = computeInverseMassVector(invMassA, lockedAxesA);
+  const Vector3 invMassVecB = computeInverseMassVector(invMassB, lockedAxesB);
+  const Matrix3x3 invIA = (typeA == Core::BodyType::Dynamic) ? massA.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+  const Matrix3x3 invIB = (typeB == Core::BodyType::Dynamic) ? massB.inverseInertiaTensor : Matrix3x3(0,0,0,0,0,0,0,0,0);
+
+  Vector3 rA = poseA.orientation * constraint.localAnchorA;
+  Vector3 rB = poseB.orientation * constraint.localAnchorB;
+  Vector3 pA = poseA.position + rA;
+  Vector3 pB = poseB.position + rB;
+
+  // Mevcut split hızlarıyla öngörülen pozisyonlar
+  Vector3 effA = pA + (motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA)) * deltaTime;
+  Vector3 effB = pB + (motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB)) * deltaTime;
+
+  Vector3 delta = effA - effB;
+  float currentDist = delta.length();
+  if (currentDist < 1e-6f)
+    return;
+  Vector3 u = delta / currentDist;
+
+  float positionError = currentDist - constraint.targetDistance;
+  if (std::abs(positionError) < 1e-5f)
+    return;
+
+  const float splitFactor = 0.8f;
+  float bias = (splitFactor / deltaTime) * positionError;
+
+  Vector3 vSplitA = motionA.splitLinearVelocity + motionA.splitAngularVelocity.cross(rA);
+  Vector3 vSplitB = motionB.splitLinearVelocity + motionB.splitAngularVelocity.cross(rB);
+  float relSplitVel = (vSplitA - vSplitB).dot(u);
+
+  Vector3 rACrossU = rA.cross(u);
+  Vector3 rBCrossU = rB.cross(u);
+  float effInvMassA = computeDirectionalInverseMass(invMassVecA, u);
+  float effInvMassB = computeDirectionalInverseMass(invMassVecB, u);
+  float invMassSum = effInvMassA + effInvMassB +
+                     (invIA * rACrossU).dot(rACrossU) +
+                     (invIB * rBCrossU).dot(rBCrossU);
+  if (invMassSum < 1e-6f)
+    return;
+
+  float deltaSplit = -(relSplitVel + bias) / invMassSum;
+  deltaSplit *= std::clamp(constraint.stiffness, 0.0f, 1.0f);
+
+  Vector3 impulse = u * deltaSplit;
+  motionA.splitLinearVelocity += applyDirectionalImpulse(impulse, invMassVecA);
+  motionA.splitAngularVelocity += invIA * rA.cross(impulse);
+  motionB.splitLinearVelocity -= applyDirectionalImpulse(impulse, invMassVecB);
+  motionB.splitAngularVelocity -= invIB * rB.cross(impulse);
 }
 
 void SequentialImpulsesKernel::resolveRevoluteConstraint(

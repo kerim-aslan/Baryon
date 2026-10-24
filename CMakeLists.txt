@@ -285,6 +285,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/DOFLockTest.cpp")
     add_test(NAME DOFLockTest COMMAND DOFLockTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/DistanceDriftTest.cpp")
+    add_executable(DistanceDriftTest tests/DistanceDriftTest.cpp)
+    target_link_libraries(DistanceDriftTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME DistanceDriftTest COMMAND DistanceDriftTest)
+endif()
+
+
 
 
 
