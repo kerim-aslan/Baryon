@@ -27,6 +27,7 @@ const char* TestScenes::getSceneName(SceneType type) {
         case SceneType::PrismaticElevator: return "14. Prizmatik Kayar Eklem & Asansor (Prismatic Slider)";
         case SceneType::SpringSuspension: return "15. Yayli Suspansiyon & Sonumlu Salinim (Spring Joint)";
         case SceneType::ConeTwistRagdoll: return "16. Koni-Burulma Ragdoll Eklemi (Cone-Twist Ragdoll Joint)";
+        case SceneType::JointBreakage: return "17. Kirilan Asma Kopru & Eklem Gerilmesi (Joint Breakage)";
         case SceneType::DOFLock: return "18. Eksen Kilitleme & 2B Fizik (DOF Lock / LockAxis)";
         case SceneType::SubsteppingTowerChain: return "19. Alt Adimlama (Substepping / Soft-Step: 20 Katli Kule & 30 Halka Zincir)";
         case SceneType::SpeculativeCCD: return "20. Spekulatif Kontak (Speculative CCD: 500 m/s Mermi vs Ince Duvar)";
@@ -74,6 +75,8 @@ const char* TestScenes::getSceneDescription(SceneType type) {
             return "Hooke Yasasi ve sonumlu harmonik salinici (Damped Harmonic Oscillator) modelini test eder. Sira sira farkli sonumleme oranlarina (sonumsuz zeta=0, kritik sonumlu zeta=1, zayif sonumlu zeta=0.15) sahip yayli kutleler ve 4 tekerlekli araba suspansiyon sasisi yer alir.";
         case SceneType::ConeTwistRagdoll:
             return "Anatomik omuz ve ragdoll mafsalini test eder. 3B uzayda koni salinim limiti (swing cone) ve eksenel burulma limiti (axial twist) ile sabit omuza bagli serbest sallanan ve burulan insan kolu modelidir.";
+        case SceneType::JointBreakage:
+            return "Asiri gerilme veya darbe altinda eklemlerin kopmasini test eder. Asma kopru uzerine agir kaya dustugunde esik itme asilir, eklem kirilir, kopan parcalar bagimsiz adalara ayrilir ve gorsel olarak kopma animasyonu izlenir.";
         case SceneType::DOFLock:
             return "Cisimlerin serbestlik derecelerini (DoF) kilitler. 1) Z ekseni ve pitch/roll rotasyonu kilitli 2B fizik modu (Lock2D), 2) Eğimde dahi dikligini koruyan devrilmeyen karakter (AngularX|Z lock), 3) Sadece dikey kayan 1-DoF asansor platformu yer alir.";
         case SceneType::SubsteppingTowerChain:
@@ -740,21 +743,21 @@ void TestScenes::setupSpringSuspension(Simulator& sim) {
     Body bob1 = sim.createBody(bob1Pose, collision::CollisionShape{collision::SphereShape(0.4f)});
     bob1.setBodyType(Core::BodyType::Dynamic);
     (void)bob1.setMass(2.0f);
-    sim.createSpringConstraint(beam, bob1, Vector3(-4.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 0.0f);
+    sim.createSpringConstraint(bob1, beam, Vector3(0.0f, 0.0f, 0.0f), Vector3(-4.0f, 0.0f, 0.0f), 2.5f, 60.0f, 0.0f);
 
     // 2. Orta: Zayıf Sönümlü Salınıcı (k = 60, c = 2.0)
     Pose bob2Pose(Vector3(0.0f, 4.0f, 0.0f));
     Body bob2 = sim.createBody(bob2Pose, collision::CollisionShape{collision::SphereShape(0.4f)});
     bob2.setBodyType(Core::BodyType::Dynamic);
     (void)bob2.setMass(2.0f);
-    sim.createSpringConstraint(beam, bob2, Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 2.0f);
+    sim.createSpringConstraint(bob2, beam, Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 2.0f);
 
     // 3. Sağ: Kritik Sönümlü Salınıcı (k = 60, c = 2*sqrt(m*k) = ~22)
     Pose bob3Pose(Vector3(4.0f, 4.0f, 0.0f));
     Body bob3 = sim.createBody(bob3Pose, collision::CollisionShape{collision::SphereShape(0.4f)});
     bob3.setBodyType(Core::BodyType::Dynamic);
     (void)bob3.setMass(2.0f);
-    sim.createSpringConstraint(beam, bob3, Vector3(4.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), 2.5f, 60.0f, 22.0f);
+    sim.createSpringConstraint(bob3, beam, Vector3(0.0f, 0.0f, 0.0f), Vector3(4.0f, 0.0f, 0.0f), 2.5f, 60.0f, 22.0f);
 
     // 4. Ön Taraf: 4 Ayaklı Yaylı Süspansiyon Platformu (Z = 4.0)
     Pose chassisPose(Vector3(0.0f, 3.0f, 4.0f));
