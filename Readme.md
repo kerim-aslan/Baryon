@@ -139,6 +139,12 @@ Baryon, veri odaklı (ECS uyumlu) ve sanal fonksiyonsuz sequential impulse mimar
 
 ---
 
+## ⚡ Çözücü Kalitesi ve Kararlılık (Solver Quality & Substepping)
+
+- **Adım İçi Alt Adımlama (Substepping / Soft-step):** Sabit fizik adımı (`dt`), yapılandırılabilir alt adımlara (`enableSubstepping = true`, `substepCount = 4`) bölünür. Çok katlı kuleler (20+ kat) ve uzun eklem zincirleri (30+ halka), düşük çözücü iterasyonuyla bile yüksek frekansta kararlı ve sarsıntısız çözülür.
+
+---
+
 ## 📁 Dizin Yapısı
 
 - **`baryon/`**: Sıfır dış bağımlılığa sahip saf C++23 fizik motoru çekirdeği.

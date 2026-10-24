@@ -128,6 +128,30 @@ public:
     }
 
     /**
+     * @brief Adım içi alt adımlama (substepping / soft-step) modunu yapılandırır.
+     * @param enabled true: alt adımlama aktif, false: tek tam adım.
+     * @param count Sabit adım başına alt adım sayısı (varsayılan 4).
+     */
+    void setSubstepping(bool enabled, uint32_t count = 4) {
+        mSettings.enableSubstepping = enabled;
+        mSettings.substepCount = std::max(1u, count);
+    }
+
+    /**
+     * @brief Alt adımlamanın devrede olup olmadığını döndürür.
+     */
+    [[nodiscard]] bool isSubsteppingEnabled() const {
+        return mSettings.enableSubstepping;
+    }
+
+    /**
+     * @brief Alt adım sayısını döndürür.
+     */
+    [[nodiscard]] uint32_t getSubstepCount() const {
+        return mSettings.substepCount;
+    }
+
+    /**
      * @brief Dünyaya bir "lazer" (ışın) fırlatarak objeleri arar.
      * @details Başlangıç noktasından belirtilen yöne doğru fırlatılan ışının 
      *          çarptığı en yakın objenin bilgilerini döndürür.

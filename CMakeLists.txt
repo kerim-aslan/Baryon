@@ -291,6 +291,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/DistanceDriftTest.cpp")
     add_test(NAME DistanceDriftTest COMMAND DistanceDriftTest)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SubsteppingTest.cpp")
+    add_executable(SubsteppingTest tests/SubsteppingTest.cpp)
+    target_link_libraries(SubsteppingTest PRIVATE Baryon::BaryonStatic)
+    add_test(NAME SubsteppingTest COMMAND SubsteppingTest)
+endif()
+
+
 
 
 

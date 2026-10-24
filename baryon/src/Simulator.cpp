@@ -255,47 +255,52 @@ void Simulator::step(float deltaTime) {
 		float dt = mFixedTimeStep;
 		subStepsLeft--;
 
-		// 1. Dinamik kuvvetleri hıza aktar
-		mIntegrator.integrateVelocities(dt);
+		uint32_t numSubSteps = (mSettings.enableSubstepping && mSettings.substepCount > 1) ? mSettings.substepCount : 1;
+		float subDt = dt / static_cast<float>(numSubSteps);
 
-		// 1b. Hızlı hareket eden nesneler için sürekli çarpışma kontrolü
-		{
-			auto &statePool = mRegistry.getComponentPool<Core::BodyState>();
-			auto &states = statePool.getAllData();
-			auto &entities = statePool.getAllEntities();
-			for (auto &&[entity, state] : std::views::zip(entities, states)) {
-				if (state.type != Core::BodyType::Dynamic || !state.useCCD || state.isSleeping) {
-					continue;
+		for (uint32_t sub = 0; sub < numSubSteps; ++sub) {
+			// 1. Dinamik kuvvetleri hıza aktar
+			mIntegrator.integrateVelocities(subDt);
+
+			// 1b. Hızlı hareket eden nesneler için sürekli çarpışma kontrolü
+			{
+				auto &statePool = mRegistry.getComponentPool<Core::BodyState>();
+				auto &states = statePool.getAllData();
+				auto &entities = statePool.getAllEntities();
+				for (auto &&[entity, state] : std::views::zip(entities, states)) {
+					if (state.type != Core::BodyType::Dynamic || !state.useCCD || state.isSleeping) {
+						continue;
+					}
+					mCollisionSystem.applyCCD(entity, subDt);
 				}
-				mCollisionSystem.applyCCD(entity, dt);
 			}
+
+			// 2. Sınır kutularını (AABB) güncelle ve adayları filtrele
+			mSpatialPartitioning.step();
+
+			// 3. Kesin çarpışma testlerini yap ve temas noktalarını üret
+			mCollisionSystem.step();
+
+			// 4. Etkileşim halindeki nesne gruplarını ayır (aktif adaları kur)
+			auto islands = mIslandSystem.buildIslands(mCollisionSystem.getManifolds());
+
+			// 5. Her nesne grubu için fiziksel tepkileri hesapla
+			mSolver.executeIslands(islands, mCollisionSystem.getManifolds(), subDt, mSettings.velocityIterations, mSettings.positionIterations);
+
+			// 6. Güncellenmiş hızları kullanarak konumları değiştir
+			mIntegrator.integratePositions(subDt);
+
+			// 6b. Uyku durumlarını çözücü ve konum güncellemesi sonrası hızlara göre güncelle (son alt adımda)
+			if (mSettings.enableSleeping && sub == numSubSteps - 1) {
+				mIslandSystem.updateSleep(islands, dt);
+			}
+
+			// 7. Bağlı nesne hiyerarşilerini (ebeveyn-çocuk) uyarla
+			mHierarchySystem.step();
+
+			// 8. O kareye özel kullanılan geçici bellek alanlarını temizle
+			mMemoryManager.resetSingleFrameAllocator();
 		}
-
-		// 2. Sınır kutularını (AABB) güncelle ve adayları filtrele
-		mSpatialPartitioning.step();
-
-		// 3. Kesin çarpışma testlerini yap ve temas noktalarını üret
-		mCollisionSystem.step();
-
-		// 4. Etkileşim halindeki nesne gruplarını ayır (aktif adaları kur)
-		auto islands = mIslandSystem.buildIslands(mCollisionSystem.getManifolds());
-
-		// 5. Her nesne grubu için fiziksel tepkileri hesapla
-		mSolver.executeIslands(islands, mCollisionSystem.getManifolds(), dt, mSettings.velocityIterations, mSettings.positionIterations);
-
-		// 6. Güncellenmiş hızları kullanarak konumları değiştir
-		mIntegrator.integratePositions(dt);
-
-		// 6b. Uyku durumlarını çözücü ve konum güncellemesi sonrası hızlara göre güncelle
-		if (mSettings.enableSleeping) {
-			mIslandSystem.updateSleep(islands, dt);
-		}
-
-		// 7. Bağlı nesne hiyerarşilerini (ebeveyn-çocuk) uyarla
-		mHierarchySystem.step();
-
-		// 8. O kareye özel kullanılan geçici bellek alanlarını temizle
-		mMemoryManager.resetSingleFrameAllocator();
 
 		mAccumulator -= mFixedTimeStep;
 	}

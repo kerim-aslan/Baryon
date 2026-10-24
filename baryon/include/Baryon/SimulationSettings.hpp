@@ -53,6 +53,12 @@ struct SimulationSettings {
 
     /// @brief Uyku optimizasyonunun devrede olup olmadığını belirler. Varsayılan: true.
     bool enableSleeping{true};
+
+    /// @brief Adım içi alt adımlama (substepping / soft-step) özelliğini açar/kapatır. Varsayılan: false.
+    bool enableSubstepping{false};
+
+    /// @brief Her bir sabit fizik adımı için çalıştırılacak alt adım sayısı. Varsayılan: 1.
+    uint32_t substepCount{1};
 };
 
 } // namespace Baryon
