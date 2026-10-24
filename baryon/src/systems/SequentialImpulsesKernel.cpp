@@ -32,6 +32,7 @@
 #include "Baryon/collision/PhysicsConstants.hpp"
 #include "Baryon/collision/PrismaticConstraint.hpp"
 #include "Baryon/collision/RevoluteConstraint.hpp"
+#include "Baryon/collision/SimdContactSolver.hpp"
 #include "Baryon/math/Matrix3x3.hpp"
 #include <algorithm>
 #include <cmath>
@@ -798,6 +799,9 @@ void SequentialImpulsesKernel::solveContactNormal(
     const Vector3 &invMassA, const Vector3 &invMassB,
     const Matrix3x3 &invIA, const Matrix3x3 &invIB,
     Core::Motion &motionA, Core::Motion &motionB) {
+#if defined(BARYON_ENABLE_SIMD)
+  collision::simd::solveContactNormalSIMD(contact, rA, rB, n, invMassA, invMassB, invIA, invIB, motionA, motionB);
+#else
   Vector3 vA = motionA.linearVelocity + motionA.angularVelocity.cross(rA);
   Vector3 vB = motionB.linearVelocity + motionB.angularVelocity.cross(rB);
   Vector3 relVel = vA - vB;
@@ -823,6 +827,7 @@ void SequentialImpulsesKernel::solveContactNormal(
     motionB.linearVelocity -= applyDirectionalImpulse(impulse, invMassB);
     motionB.angularVelocity -= invIB * rB.cross(impulse);
   }
+#endif
 }
 
 void SequentialImpulsesKernel::solveContactFriction(
@@ -833,6 +838,9 @@ void SequentialImpulsesKernel::solveContactFriction(
     const Vector3 &invMassA, const Vector3 &invMassB,
     const Matrix3x3 &invIA, const Matrix3x3 &invIB,
     Core::Motion &motionA, Core::Motion &motionB) {
+#if defined(BARYON_ENABLE_SIMD)
+  collision::simd::solveContactFrictionSIMD(contact, rA, rB, t1, t2, friction, invMassA, invMassB, invIA, invIB, motionA, motionB);
+#else
   float maxFriction = friction * contact.normalImpulse;
 
   // Teğet 1
@@ -884,6 +892,7 @@ void SequentialImpulsesKernel::solveContactFriction(
     motionB.linearVelocity -= applyDirectionalImpulse(impulseT2, invMassB);
     motionB.angularVelocity -= invIB * rB.cross(impulseT2);
   }
+#endif
 }
 
 void SequentialImpulsesKernel::applyRollingResistance(
